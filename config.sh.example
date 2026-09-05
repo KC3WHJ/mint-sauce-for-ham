@@ -1,0 +1,22 @@
+# Copy this file to config.sh (same directory) and fill in your own values.
+# config.sh is git-ignored - your callsign, grid square, radio serial ID, and
+# any credentials you fill in below never end up in version control.
+
+# ---- Identity (used by Pat Winlink / VARA) ----
+CALLSIGN="N0CALL"
+GRID="AA00aa"
+WINLINK_PASSWORD=""            # your Winlink.org account password
+VARA_REG_CODE=""               # shared across VARA HF and VARA FM
+VARA_CALLSIGN_LICENSE="N0CALL" # the callsign your VARA registration covers
+
+# ---- IC-705 / Wine ham stack ----
+AUDIO_DEVICE="hw:1,0"          # `aplay -l` to find your radio's USB audio card
+IC705_SERIAL_ID="usb-Icom_Inc._IC-705_IC-705_XXXXXXXX-if00"  # ls /dev/serial/by-id/
+DOWNLOADS="$HOME/Downloads"
+WINEPREFIX_HAM="$HOME/.wine32"
+
+# ---- RTL-SDR / ADS-B station location (optional) ----
+# Leave both blank to skip setting a fixed location - readsb will just use
+# GPS (if a USB GPS is plugged in and gpsd auto-detects it) or no location.
+ADSB_LAT=""                    # e.g. 40.0637
+ADSB_LON=""                    # e.g. -74.9868
