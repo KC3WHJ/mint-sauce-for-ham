@@ -1,0 +1,74 @@
+{
+  "Fixed_Base_1": {
+    "display_name": "Fixed Base 1",
+    "description": "Amateur simplex/calling, APRS and ISS/space memories, followed by the first three NOAA Weather Radio channels. (CH1-19)",
+    "group": 0,
+    "base_channel": 1
+  },
+  "Fixed_Base_2": {
+    "display_name": "Fixed Base 2",
+    "description": "Remaining NOAA Weather Radio memories, marine VHF monitoring, and the first GMRS receive-only reference memories. (CH20-38)",
+    "group": 1,
+    "base_channel": 20
+  },
+  "Fixed_Base_3": {
+    "display_name": "Fixed Base 3",
+    "description": "GMRS monitoring, MURS / Dot reference memories, and the first national interoperability memories. (CH39-50)",
+    "group": 2,
+    "base_channel": 39
+  },
+  "Fixed_Base_4": {
+    "display_name": "Fixed Base 4",
+    "description": "Remaining national VHF/UHF interoperability receive-only reference memories. (CH51-57)",
+    "group": 3,
+    "base_channel": 51
+  },
+  "Local_Add-On_19114": {
+    "display_name": "Local Add-On 19114",
+    "description": "Local ham repeaters near ZIP 19114, Northeast Philadelphia & Lower Bucks",
+    "group": 4,
+    "base_channel": 58
+  },
+  "Local_Add-On_11720": {
+    "display_name": "Local Add-On 11720",
+    "description": "Local ham repeaters near ZIP 11720, Centereach & Central Suffolk County",
+    "group": 5,
+    "base_channel": 68
+  },
+  "Local_Add-On_22191": {
+    "display_name": "Local Add-On 22191",
+    "description": "Local ham repeaters near ZIP 22191, Woodbridge & Prince William County",
+    "group": 6,
+    "base_channel": 80
+  },
+  "Local_Add-On_23323": {
+    "display_name": "Local Add-On 23323",
+    "description": "Local ham repeaters near ZIP 23323, Chesapeake & Hampton Roads",
+    "group": 7,
+    "base_channel": 88
+  },
+  "Extended_19114": {
+    "display_name": "Extended Coverage 19114",
+    "description": "Extended Philadelphia / Bucks / Montgomery coverage (ZIP 19114)",
+    "group": 8,
+    "base_channel": 101
+  },
+  "Extended_11720": {
+    "display_name": "Extended Coverage 11720",
+    "description": "Extended Central Suffolk / Long Island coverage (ZIP 11720)",
+    "group": 9,
+    "base_channel": 114
+  },
+  "Extended_22191": {
+    "display_name": "Extended Coverage 22191",
+    "description": "Extended Woodbridge / Alexandria / Fairfax coverage (ZIP 22191)",
+    "group": 10,
+    "base_channel": 127
+  },
+  "Extended_23323": {
+    "display_name": "Extended Coverage 23323",
+    "description": "Extended Hampton Roads / Suffolk / Peninsula coverage (ZIP 23323)",
+    "group": 11,
+    "base_channel": 139
+  }
+}

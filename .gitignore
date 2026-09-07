@@ -1,3 +1,5 @@
 config.sh
 *.ini
 *.log
+__pycache__/
+ic705-channel-tools/ic705_channels.json

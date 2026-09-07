@@ -25,6 +25,18 @@ reception, and a Wine-based digital-modes stack for the Icom IC-705.
   **WSJT-X**, and **GridTracker** — all sharing the IC-705 via a single
   Hamlib `rigctld` instance talking directly to its USB CI-V port.
 
+## IC-705 memory channel tools
+
+`ic705-channel-tools/` is a separate, self-contained toolkit for
+programming the IC-705's memory channels over CI-V and browsing them from
+a desktop app — independent of the main setup script above. It can turn a
+RAINWorks-style "Standalone Analog Programming Guide" PDF into memory
+channels automatically, or you can build/edit the channel CSVs by hand.
+See [`ic705-channel-tools/README.md`](ic705-channel-tools/README.md) for
+the full workflow, file layout, and known limitations (e.g. the radio must
+be in MEMO mode on its own touchscreen for remote channel-switching to
+take visible effect — there's no CI-V command to force that).
+
 ## Prerequisites
 
 - A Debian/Ubuntu-based distro (built and tested on Linux Mint).
