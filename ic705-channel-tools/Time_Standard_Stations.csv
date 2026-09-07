@@ -1,0 +1,13 @@
+Channel Number,Receive Frequency,Transmit Frequency,Offset Frequency,Offset Direction,Operating Mode,Name,Tone Mode,CTCSS,DCS,DTCS Code,Transmit Power,Skip,Comment
+158,2.500000,2.500000,,Simplex,AM,WWV-2.5,OFF,,,,,,NIST WWV time/frequency standard - Fort Collins CO - RX ONLY - set TX inhibit/Skip Tx in radio
+159,5.000000,5.000000,,Simplex,AM,WWV-5,OFF,,,,,,NIST WWV time/frequency standard - Fort Collins CO - RX ONLY - set TX inhibit/Skip Tx in radio
+160,10.000000,10.000000,,Simplex,AM,WWV-10,OFF,,,,,,NIST WWV time/frequency standard - Fort Collins CO - RX ONLY - set TX inhibit/Skip Tx in radio
+161,15.000000,15.000000,,Simplex,AM,WWV-15,OFF,,,,,,NIST WWV time/frequency standard - Fort Collins CO - RX ONLY - set TX inhibit/Skip Tx in radio
+162,20.000000,20.000000,,Simplex,AM,WWV-20,OFF,,,,,,NIST WWV time/frequency standard - Fort Collins CO - RX ONLY - set TX inhibit/Skip Tx in radio
+163,2.500000,2.500000,,Simplex,AM,WWVH-2.5,OFF,,,,,,NIST WWVH time/frequency standard - Kauai HI - RX ONLY - set TX inhibit/Skip Tx in radio
+164,5.000000,5.000000,,Simplex,AM,WWVH-5,OFF,,,,,,NIST WWVH time/frequency standard - Kauai HI - RX ONLY - set TX inhibit/Skip Tx in radio
+165,10.000000,10.000000,,Simplex,AM,WWVH-10,OFF,,,,,,NIST WWVH time/frequency standard - Kauai HI - RX ONLY - set TX inhibit/Skip Tx in radio
+166,15.000000,15.000000,,Simplex,AM,WWVH-15,OFF,,,,,,NIST WWVH time/frequency standard - Kauai HI - RX ONLY - set TX inhibit/Skip Tx in radio
+167,3.330000,3.330000,,Simplex,USB,CHU-3.3,OFF,,,,,,NRC CHU time signal - Ottawa Canada - USB w/ carrier reinserted - RX ONLY - set TX inhibit/Skip Tx in radio
+168,7.850000,7.850000,,Simplex,USB,CHU-7.85,OFF,,,,,,NRC CHU time signal - Ottawa Canada - USB w/ carrier reinserted - RX ONLY - set TX inhibit/Skip Tx in radio
+169,14.670000,14.670000,,Simplex,USB,CHU-14.67,OFF,,,,,,NRC CHU time signal - Ottawa Canada - USB w/ carrier reinserted - RX ONLY - set TX inhibit/Skip Tx in radio

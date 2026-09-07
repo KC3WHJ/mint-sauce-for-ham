@@ -29,6 +29,24 @@ SKIP_CHANNELS = {12, 13, 14, 15, 16}
 MODE_FM = 0x05
 FIL1 = 0x01
 
+# IC-705 CI-V operating-mode codes (cmd 0x06) -- stable across Icom's whole
+# CI-V line (IC-7300/9700/705/etc). FM-N has no distinct CI-V mode code (it's
+# a filter setting, not a mode), so it maps to plain FM like MODE_FM did
+# unconditionally before this table existed -- see README's "Known
+# limitations" section.
+MODE_CODES = {
+    "LSB": 0x00,
+    "USB": 0x01,
+    "AM": 0x02,
+    "CW": 0x03,
+    "RTTY": 0x04,
+    "FM": 0x05,
+    "FM-N": 0x05,
+    "WFM": 0x06,
+    "CW-R": 0x07,
+    "RTTY-R": 0x08,
+}
+
 
 def bcd_byte(hi_digit: int, lo_digit: int) -> int:
     return (hi_digit << 4) | lo_digit
@@ -101,8 +119,9 @@ class IC705:
     def set_frequency(self, hz: int):
         self.send(b"\x05", encode_frequency(hz))
 
-    def set_mode(self):
-        self.send(b"\x06", bytes([MODE_FM, FIL1]))
+    def set_mode(self, mode: str):
+        code = MODE_CODES.get(mode.upper(), MODE_FM)
+        self.send(b"\x06", bytes([code, FIL1]))
 
     def set_duplex(self, direction: str):
         code = {"simplex": 0x10, "-": 0x11, "+": 0x12}[direction]
@@ -132,10 +151,10 @@ class IC705:
     def write_memory_content(self, payload: bytes):
         self.send(b"\x1A\x00", payload)
 
-    def program_channel(self, group: int, channel: int, rx_hz: int, tx_hz: int, tone_mode: str, ctcss, name: str):
+    def program_channel(self, group: int, channel: int, rx_hz: int, tx_hz: int, mode: str, tone_mode: str, ctcss, name: str):
         self.select_vfo_a()
         self.set_frequency(rx_hz)
-        self.set_mode()
+        self.set_mode(mode)
         if tx_hz == rx_hz:
             self.set_duplex("simplex")
         else:
@@ -191,10 +210,13 @@ def main():
             rx_hz = round(float(row["Receive Frequency"]) * 1_000_000)
             tx_hz = round(float(row["Transmit Frequency"]) * 1_000_000)
             group, slot = row["_group"], row["_slot"]
-            print(f"CH{ch:03d}  group={group} slot={slot}  RX={rx_hz/1e6:.4f}  TX={tx_hz/1e6:.4f}  "
+            mode = row["Operating Mode"]
+            if mode.upper() not in MODE_CODES:
+                print(f"  WARNING: unrecognized Operating Mode '{mode}' for CH{ch:03d} -- defaulting to FM")
+            print(f"CH{ch:03d}  group={group} slot={slot}  RX={rx_hz/1e6:.4f}  TX={tx_hz/1e6:.4f}  mode={mode}  "
                   f"{row['Tone Mode']} {row.get('CTCSS', '')}  name={row['Name']}")
             try:
-                radio.program_channel(group, slot, rx_hz, tx_hz, row["Tone Mode"], row.get("CTCSS"), row["Name"])
+                radio.program_channel(group, slot, rx_hz, tx_hz, mode, row["Tone Mode"], row.get("CTCSS"), row["Name"])
                 done.append(ch)
             except CivError as e:
                 print(f"  !! FAILED: {e}")

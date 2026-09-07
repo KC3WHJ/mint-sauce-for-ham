@@ -1,0 +1,8 @@
+Channel Number,Receive Frequency,Transmit Frequency,Offset Frequency,Offset Direction,Operating Mode,Name,Tone Mode,CTCSS,DCS,DTCS Code,Transmit Power,Skip,Comment
+151,14.325000,14.325000,,Simplex,USB,HWN-SAT,OFF,,,,,,Hurricane Watch Net primary / SATERN Intl Net (Mon-Wed-Fri 1600Z); WX4NHC (National Hurricane Center) active here during storm activations
+152,7.268000,7.268000,,Simplex,LSB,HWN-ALT,OFF,,,,,,Hurricane Watch Net alternate frequency - better for shorter-skip propagation during storms
+153,14.265000,14.265000,,Simplex,USB,SATERN,OFF,,,,,,SATERN (Salvation Army Team Emergency Radio Network) Net - Mon-Fri 1500Z
+154,7.265000,7.265000,,Simplex,LSB,SATERN-SAT,OFF,,,,,,SATERN Net - Saturday sessions
+155,14.300000,14.300000,,Simplex,USB,MMSN,OFF,,,,,,Maritime Mobile Service Network - daily, maritime/emergency relay traffic
+156,7.281000,7.281000,,Simplex,LSB,NY-RACES,OFF,,,,,,NYS RACES phone net - Sundays 0900 local (covers Suffolk County NY area)
+157,7.081500,7.081500,,Simplex,USB,NY-RACES-D,OFF,,,,,,NYS RACES digital net - follows the phone net, check waterfall for activity

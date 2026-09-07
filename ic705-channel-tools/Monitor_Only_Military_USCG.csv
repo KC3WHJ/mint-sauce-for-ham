@@ -1,0 +1,14 @@
+Channel Number,Receive Frequency,Transmit Frequency,Offset Frequency,Offset Direction,Operating Mode,Name,Tone Mode,CTCSS,DCS,DTCS Code,Transmit Power,Skip,Comment
+170,4.724000,4.724000,,Simplex,USB,HFGCS-4.7,OFF,,,,,,USAF High Frequency Global Communications System (HF-GCS) - primary voice freq - RX ONLY - set TX inhibit/Skip Tx in radio
+171,6.739000,6.739000,,Simplex,USB,HFGCS-6.7,OFF,,,,,,USAF High Frequency Global Communications System (HF-GCS) - primary voice freq - RX ONLY - set TX inhibit/Skip Tx in radio
+172,8.992000,8.992000,,Simplex,USB,HFGCS-9.0,OFF,,,,,,USAF High Frequency Global Communications System (HF-GCS) - primary voice freq - RX ONLY - set TX inhibit/Skip Tx in radio
+173,11.175000,11.175000,,Simplex,USB,HFGCS-11.2,OFF,,,,,,USAF High Frequency Global Communications System (HF-GCS) - primary voice freq - RX ONLY - set TX inhibit/Skip Tx in radio
+174,13.200000,13.200000,,Simplex,USB,HFGCS-13.2,OFF,,,,,,USAF High Frequency Global Communications System (HF-GCS) - primary voice freq - RX ONLY - set TX inhibit/Skip Tx in radio
+175,15.016000,15.016000,,Simplex,USB,HFGCS-15.0,OFF,,,,,,USAF High Frequency Global Communications System (HF-GCS) - primary voice freq - RX ONLY - set TX inhibit/Skip Tx in radio
+176,13.927000,13.927000,,Simplex,USB,MARS-13.9,OFF,,,,,,Military Affiliate Radio System (MARS) HF relay freq - RX ONLY - set TX inhibit/Skip Tx in radio
+177,11.232000,11.232000,,Simplex,USB,CANFORCE,OFF,,,,,,Canadian Forces HF station - RX ONLY - set TX inhibit/Skip Tx in radio
+178,4.426000,4.426000,,Simplex,USB,NMN-4.4,OFF,,,,,,USCG NMN Chesapeake VA - HF voice weather broadcast (VOBRA), offshore fcst/hurricane info - RX ONLY - set TX inhibit/Skip Tx in radio
+179,6.501000,6.501000,,Simplex,USB,NMN-6.5,OFF,,,,,,USCG NMN Chesapeake VA - HF voice weather broadcast (VOBRA), offshore fcst/hurricane info - RX ONLY - set TX inhibit/Skip Tx in radio
+180,8.764000,8.764000,,Simplex,USB,NMN-8.8,OFF,,,,,,USCG NMN Chesapeake VA - HF voice weather broadcast (VOBRA), offshore fcst/hurricane info - RX ONLY - set TX inhibit/Skip Tx in radio
+181,13.089000,13.089000,,Simplex,USB,NMN-13.1,OFF,,,,,,USCG NMN Chesapeake VA - HF voice weather broadcast (VOBRA), high seas fcst/hurricane info - RX ONLY - set TX inhibit/Skip Tx in radio
+182,17.314000,17.314000,,Simplex,USB,NMN-17.3,OFF,,,,,,USCG NMN Chesapeake VA - HF voice weather broadcast (VOBRA), high seas fcst/hurricane info - RX ONLY - set TX inhibit/Skip Tx in radio

@@ -70,5 +70,23 @@
     "description": "Extended Hampton Roads / Suffolk / Peninsula coverage (ZIP 23323)",
     "group": 11,
     "base_channel": 139
+  },
+  "HF_Nets_National": {
+    "display_name": "HF Nets (National)",
+    "description": "National/international HF amateur nets with fixed frequencies: Hurricane Watch Net, SATERN, Maritime Mobile Service Network, NYS RACES. (CH151-157)",
+    "group": 12,
+    "base_channel": 151
+  },
+  "Time_Standard_Stations": {
+    "display_name": "Time Standard Stations",
+    "description": "WWV, WWVH, and CHU time/frequency standard broadcasts. Receive-only reference. (CH158-169)",
+    "group": 13,
+    "base_channel": 158
+  },
+  "Monitor_Only_Military_USCG": {
+    "display_name": "Military & USCG Monitor",
+    "description": "HF-GCS (USAF), MARS, Canadian Forces HF, and USCG NMN Chesapeake weather broadcasts. Receive-only. (CH170-182)",
+    "group": 14,
+    "base_channel": 170
   }
 }
