@@ -6,8 +6,12 @@
 #     the RTL-SDR dongle between normal VHF/UHF/airband mode and HF/shortwave
 #     direct-sampling mode (a single RTL-SDR dongle can only do one at a time)
 #   - VarAC, VARA HF, VARA FM (all under Wine), Pat Winlink, JS8Call,
-#     WSJT-X, and GridTracker for the Icom IC-705 - all sharing the radio via
-#     a single Hamlib rigctld instance talking directly to its USB CI-V port
+#     WSJT-X, and GridTracker - all sharing whichever radio is currently
+#     selected via select-radio.sh (see radio_profiles/) via a single Hamlib
+#     rigctld instance talking directly to its serial port. VarAC uses flrig
+#     instead (see Start_VarAC.sh) since its Hamlib option doesn't work
+#     under this Wine build - flrig and rigctld can't run at the same time,
+#     since both want exclusive access to the one physical serial port.
 #
 # Assumes: this user has sudo rights, and the proprietary/Windows installers
 # (VarAC, VARA HF, VARA FM, and the JS8Call/WSJT-X/GridTracker/Pat .deb
@@ -352,14 +356,72 @@ with open(path, "w") as f:
 print(f"Wrote {path}")
 PYEOF
 
+section "Radio profiles + active-radio picker"
+# Multi-radio support: each radio this station uses gets a profile in
+# ~/radio_profiles/<name>.conf (plain KEY="value" bash, sourced directly -
+# see radio_profiles/*.conf in this repo for real, working examples: IC-705,
+# FT-891, TX-500 MP, and Xiegu G-90). select-radio.sh lets you explicitly
+# pick which one is "active" (a symlink at radio_profiles/active-radio.conf)
+# rather than auto-detecting from what's plugged in - auto-detection breaks
+# the moment two radios are connected at once, which is exactly what
+# happened during development. Start_Flrig_Radio.sh, sync-radio-audio.sh,
+# Start_Pat.sh, and Start_Pat_FM.sh all just read that one active-radio.conf
+# symlink; nothing else needs to change when you add a radio.
+#
+# This design is inspired by EmComm Tools OS's own radio/mode selectors
+# (community.emcommtools.com) - its et-radio (explicit radio picker) and
+# et-mode (explicit workflow picker) patterns are the reason this uses an
+# explicit picker instead of auto-detection.
+mkdir -p "$HOME/radio_profiles/audio" "$HOME/.local/bin"
+cp "$SCRIPT_DIR/bin/"*.sh "$HOME/.local/bin/"
+chmod +x "$HOME/.local/bin/select-radio.sh" "$HOME/.local/bin/ham-radio-name.sh" \
+    "$HOME/.local/bin/Start_Flrig_Radio.sh" "$HOME/.local/bin/sync-radio-audio.sh"
+if [ -d "$SCRIPT_DIR/radio_profiles" ]; then
+    cp -n "$SCRIPT_DIR/radio_profiles/"*.conf "$HOME/radio_profiles/" 2>/dev/null || true
+    cp -n "$SCRIPT_DIR/radio_profiles/audio/"*.sh "$HOME/radio_profiles/audio/" 2>/dev/null || true
+    chmod +x "$HOME/radio_profiles/audio/"*.sh 2>/dev/null || true
+fi
+echo "Installed select-radio.sh, ham-radio-name.sh, Start_Flrig_Radio.sh,"
+echo "sync-radio-audio.sh to ~/.local/bin, and any radio profiles not already"
+echo "present to ~/radio_profiles (existing ones were left untouched)."
+echo "Run select-radio.sh to choose the active radio before using any of the"
+echo "apps below - if none is chosen yet, this falls back to the IC-705"
+echo "config from config.sh."
+
 section "Start_Pat.sh / Start_Pat_FM.sh"
-cat > "$HOME/Start_Pat.sh" <<EOF
-#!/bin/bash
-# rigctld talks directly to the IC-705's hardware CI-V port - no flrig in
-# this path at all (flrig is unstable and unnecessary here; it's only used
+# Both scripts drive whichever radio is currently selected via
+# select-radio.sh (~/radio_profiles/active-radio.conf) - no flrig in this
+# path at all (flrig is unstable and unnecessary here; it's only used
 # separately for VarAC via Start_VarAC.sh, which can't run at the same time
 # as this - both want exclusive access to the same physical serial port).
-IC705_DEV="/dev/serial/by-id/$IC705_SERIAL_ID"
+# If no radio has been selected yet, falls back to the IC-705 from
+# config.sh so a fresh setup still works before you've run select-radio.sh.
+cat > "$HOME/Start_Pat.sh" <<EOF
+#!/bin/bash
+set -e
+
+ACTIVE="\$HOME/radio_profiles/active-radio.conf"
+if [ -e "\$ACTIVE" ]; then
+    source "\$ACTIVE"
+else
+    RIG_MODEL=3085
+    RIG_NAME="IC-705"
+    SERIAL_DEVICE="/dev/serial/by-id/$IC705_SERIAL_ID"
+    BAUD_RATE=115200
+    AUDIO_DEVICE="$AUDIO_DEVICE"
+fi
+
+for var in RIG_MODEL RIG_NAME SERIAL_DEVICE BAUD_RATE AUDIO_DEVICE; do
+    val="\${!var}"
+    if [ -z "\$val" ] || [[ "\$val" == *CHANGE_ME* ]]; then
+        echo "ERROR: active radio (\$RIG_NAME) still has a placeholder for \$var - fill it in first."
+        exit 1
+    fi
+done
+if [ ! -e "\$SERIAL_DEVICE" ]; then
+    echo "ERROR: \$RIG_NAME's serial device (\$SERIAL_DEVICE) doesn't exist. Is it plugged in?"
+    exit 1
+fi
 
 rigctld_responsive() {
     timeout 3 rigctl -m 2 -r localhost:4532 f > /dev/null 2>&1
@@ -368,17 +430,24 @@ rigctld_responsive() {
 CHAIN_RESTARTED=0
 if ! rigctld_responsive; then
     CHAIN_RESTARTED=1
-    pkill -f "rigctld -m 3085" 2>/dev/null
+    pkill -f "^rigctld " 2>/dev/null || true
     sleep 1
-    rigctld -m 3085 -r "\$IC705_DEV" -s 115200 -t 4532 &
+    PTT_ARGS=()
+    [ -n "\$PTT_TYPE" ] && PTT_ARGS=(-P "\$PTT_TYPE")
+    rigctld -m "\$RIG_MODEL" -r "\$SERIAL_DEVICE" -s "\$BAUD_RATE" "\${PTT_ARGS[@]}" -t 4532 &
     for i in \$(seq 1 10); do
         rigctld_responsive && break
         sleep 1
     done
+    if ! rigctld_responsive; then
+        echo "ERROR: rigctld didn't come up talking to \$RIG_NAME."
+        echo "Double check SERIAL_DEVICE/BAUD_RATE in \$ACTIVE against the radio."
+        exit 1
+    fi
 fi
 
-# Pat Winlink HF (via VARA HF) needs the radio in USB-D (PKTUSB), not
-# whatever mode it was last left in by another app.
+# Pat Winlink HF needs the radio in USB-D (PKTUSB), not whatever mode it was
+# last left in by another app.
 rigctl -m 2 -r localhost:4532 M PKTUSB 2400 > /dev/null 2>&1
 
 if pgrep -f "VARAFM.exe" > /dev/null; then
@@ -386,7 +455,7 @@ if pgrep -f "VARAFM.exe" > /dev/null; then
     sleep 2
 fi
 if ! pgrep -f "VARA.exe" > /dev/null; then
-    env WINEPREFIX="$WINEPREFIX_HAM" AUDIODEV="$AUDIO_DEVICE" wine "$WINEPREFIX_HAM/drive_c/VARA/VARA.exe" &
+    env WINEPREFIX="$WINEPREFIX_HAM" AUDIODEV="\$AUDIO_DEVICE" wine "$WINEPREFIX_HAM/drive_c/VARA/VARA.exe" &
     for i in \$(seq 1 30); do
         (exec 3<>/dev/tcp/127.0.0.1/8300) 2>/dev/null && exec 3>&- && break
         sleep 1
@@ -415,11 +484,30 @@ chmod +x "$HOME/Start_Pat.sh"
 
 cat > "$HOME/Start_Pat_FM.sh" <<EOF
 #!/bin/bash
-# rigctld talks directly to the IC-705's hardware CI-V port - no flrig in
-# this path at all (flrig is unstable and unnecessary here; it's only used
-# separately for VarAC via Start_VarAC.sh, which can't run at the same time
-# as this - both want exclusive access to the same physical serial port).
-IC705_DEV="/dev/serial/by-id/$IC705_SERIAL_ID"
+set -e
+
+ACTIVE="\$HOME/radio_profiles/active-radio.conf"
+if [ -e "\$ACTIVE" ]; then
+    source "\$ACTIVE"
+else
+    RIG_MODEL=3085
+    RIG_NAME="IC-705"
+    SERIAL_DEVICE="/dev/serial/by-id/$IC705_SERIAL_ID"
+    BAUD_RATE=115200
+    AUDIO_DEVICE="$AUDIO_DEVICE"
+fi
+
+for var in RIG_MODEL RIG_NAME SERIAL_DEVICE BAUD_RATE AUDIO_DEVICE; do
+    val="\${!var}"
+    if [ -z "\$val" ] || [[ "\$val" == *CHANGE_ME* ]]; then
+        echo "ERROR: active radio (\$RIG_NAME) still has a placeholder for \$var - fill it in first."
+        exit 1
+    fi
+done
+if [ ! -e "\$SERIAL_DEVICE" ]; then
+    echo "ERROR: \$RIG_NAME's serial device (\$SERIAL_DEVICE) doesn't exist. Is it plugged in?"
+    exit 1
+fi
 
 rigctld_responsive() {
     timeout 3 rigctl -m 2 -r localhost:4532 f > /dev/null 2>&1
@@ -428,17 +516,24 @@ rigctld_responsive() {
 CHAIN_RESTARTED=0
 if ! rigctld_responsive; then
     CHAIN_RESTARTED=1
-    pkill -f "rigctld -m 3085" 2>/dev/null
+    pkill -f "^rigctld " 2>/dev/null || true
     sleep 1
-    rigctld -m 3085 -r "\$IC705_DEV" -s 115200 -t 4532 &
+    PTT_ARGS=()
+    [ -n "\$PTT_TYPE" ] && PTT_ARGS=(-P "\$PTT_TYPE")
+    rigctld -m "\$RIG_MODEL" -r "\$SERIAL_DEVICE" -s "\$BAUD_RATE" "\${PTT_ARGS[@]}" -t 4532 &
     for i in \$(seq 1 10); do
         rigctld_responsive && break
         sleep 1
     done
+    if ! rigctld_responsive; then
+        echo "ERROR: rigctld didn't come up talking to \$RIG_NAME."
+        echo "Double check SERIAL_DEVICE/BAUD_RATE in \$ACTIVE against the radio."
+        exit 1
+    fi
 fi
 
-# Pat Winlink FM (via VARA FM) needs the radio in actual FM mode, not
-# USB-D -- FM digital packet uses real FM modulation, unlike HF data modes.
+# Pat Winlink FM needs the radio in actual FM mode, not USB-D -- FM digital
+# packet uses real FM modulation, unlike HF data modes.
 rigctl -m 2 -r localhost:4532 M FM 0 > /dev/null 2>&1
 
 if pgrep -f "VARA.exe" > /dev/null; then
@@ -446,7 +541,7 @@ if pgrep -f "VARA.exe" > /dev/null; then
     sleep 2
 fi
 if ! pgrep -f "VARAFM.exe" > /dev/null; then
-    env WINEPREFIX="$WINEPREFIX_HAM" AUDIODEV="$AUDIO_DEVICE" wine "$WINEPREFIX_HAM/drive_c/VARA FM/VARAFM.exe" &
+    env WINEPREFIX="$WINEPREFIX_HAM" AUDIODEV="\$AUDIO_DEVICE" wine "$WINEPREFIX_HAM/drive_c/VARA FM/VARAFM.exe" &
     for i in \$(seq 1 30); do
         (exec 3<>/dev/tcp/127.0.0.1/8300) 2>/dev/null && exec 3>&- && break
         sleep 1
@@ -472,7 +567,7 @@ xdg-open http://localhost:8080 2>/dev/null &
 wait "\$PAT_PID"
 EOF
 chmod +x "$HOME/Start_Pat_FM.sh"
-echo "Start_Pat.sh and Start_Pat_FM.sh written."
+echo "Start_Pat.sh and Start_Pat_FM.sh written (radio-agnostic via active-radio.conf)."
 
 section "stop-pat.sh"
 mkdir -p "$HOME/.local/bin"
@@ -627,6 +722,9 @@ echo "Reminders:"
 [ -z "$ADSB_LAT" ] && echo "  - ADSB_LAT/ADSB_LON were blank, readsb has no fixed location unless a GPS is plugged in."
 echo "  - Verify Start_Pat_FM.sh looks correct (see note above) before using the FM shortcut."
 echo "  - Only one of {VarAC, Pat Winlink HF, Pat Winlink FM, WSJT-X, JS8Call} at a time - they all share the one radio."
+echo "  - Run ~/.local/bin/select-radio.sh to choose which radio is active before"
+echo "    using any of the above - see radio_profiles/*.conf in this repo for"
+echo "    real examples (IC-705, FT-891, TX-500 MP, Xiegu G-90)."
 echo "  - The RTL-SDR dongle is also one-at-a-time: readsb (ADS-B) and SDR++"
 echo "    can't use it simultaneously. Use the readsb start/stop shortcuts to free it."
 echo "  - SDR++'s VHF/UHF and HF/Shortwave modes are also one-at-a-time on a single dongle."
