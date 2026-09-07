@@ -377,6 +377,10 @@ if ! rigctld_responsive; then
     done
 fi
 
+# Pat Winlink HF (via VARA HF) needs the radio in USB-D (PKTUSB), not
+# whatever mode it was last left in by another app.
+rigctl -m 2 -r localhost:4532 M PKTUSB 2400 > /dev/null 2>&1
+
 if pgrep -f "VARAFM.exe" > /dev/null; then
     pkill -f "VARAFM.exe"
     sleep 2
@@ -433,6 +437,10 @@ if ! rigctld_responsive; then
     done
 fi
 
+# Pat Winlink FM (via VARA FM) needs the radio in actual FM mode, not
+# USB-D -- FM digital packet uses real FM modulation, unlike HF data modes.
+rigctl -m 2 -r localhost:4532 M FM 0 > /dev/null 2>&1
+
 if pgrep -f "VARA.exe" > /dev/null; then
     pkill -f "VARA.exe"
     sleep 2
@@ -465,6 +473,47 @@ wait "\$PAT_PID"
 EOF
 chmod +x "$HOME/Start_Pat_FM.sh"
 echo "Start_Pat.sh and Start_Pat_FM.sh written."
+
+section "stop-pat.sh"
+mkdir -p "$HOME/.local/bin"
+cat > "$HOME/.local/bin/stop-pat.sh" <<'EOF'
+#!/bin/bash
+# Stops Pat Winlink and whichever VARA engine it started (HF or FM), so
+# Conky reflects reality and the radio's shared serial/audio path is free
+# for the next thing (VarAC, WSJT-X, JS8Call, etc.).
+found=0
+
+for pattern in "pat http" "VARA.exe" "VARAFM.exe"; do
+    pids=$(pgrep -f "$pattern")
+    if [ -n "$pids" ]; then
+        echo "Stopping: $pattern ($pids)"
+        pkill -f "$pattern"
+        found=1
+    fi
+done
+
+if [ "$found" = "0" ]; then
+    echo "Nothing to stop -- Pat Winlink and VARA HF/FM are not running."
+else
+    sleep 1
+    echo "Done."
+fi
+EOF
+chmod +x "$HOME/.local/bin/stop-pat.sh"
+
+mkdir -p "$HOME/Desktop"
+cat > "$HOME/Desktop/Stop Pat Winlink.desktop" <<EOF
+[Desktop Entry]
+Name=Stop Pat Winlink
+Comment=Stop Pat Winlink and its VARA HF/FM engine
+Exec=bash -c "\$HOME/.local/bin/stop-pat.sh; echo; read -p 'Press Enter to close...'"
+Type=Application
+Terminal=true
+Icon=process-stop
+Categories=HamRadio;
+EOF
+chmod +x "$HOME/Desktop/Stop Pat Winlink.desktop"
+echo "stop-pat.sh and its Desktop shortcut written."
 
 section "GridTracker <-> JS8Call UDP alignment"
 JS8_INI="$HOME/.config/JS8Call.ini"

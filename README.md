@@ -87,7 +87,13 @@ already done before acting on it.
   can only do one job at a time. The SDR++ shortcuts stop `readsb` for you
   automatically, but if you use `sudo systemctl stop readsb` by hand for
   any other reason, remember to start it again afterward or ADS-B tracking
-  stays off.
+  stays off. `~/Desktop/Stop Pat Winlink.desktop` (or `~/.local/bin/stop-pat.sh`)
+  stops Pat and whichever VARA engine it started, so it doesn't sit running
+  unnoticed and conflict with the next app that needs the radio.
+- `Start_Pat.sh`/`Start_Pat_FM.sh` set the radio's mode (USB-D for HF,
+  FM for FM) before launching, since VARA HF and VARA FM each need a
+  different one and won't correct it for you if it was left in the other's
+  mode by a prior session.
 - The script adds you to the `dialout` group so `rigctld`/flrig can open
   the IC-705's and a USB GPS's serial ports — **this only takes effect
   after you log out and back in (or reboot)**. Until then, radio control
