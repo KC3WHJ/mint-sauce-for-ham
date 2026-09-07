@@ -1,0 +1,22 @@
+Channel Number,Receive Frequency,Transmit Frequency,Offset Frequency,Offset Direction,Operating Mode,Name,Tone Mode,CTCSS,DCS,DTCS Code,Transmit Power,Skip,Comment
+183,5.935000,5.935000,,Simplex,AM,WWCR-5.9,OFF,,,,,,WWCR Nashville TN Tx#2 - 12am-7am & 7pm-12am ET - RX ONLY - set TX inhibit/Skip Tx in radio
+184,7.490000,7.490000,,Simplex,AM,WWCR-7.5,OFF,,,,,,WWCR Nashville TN Tx#2 - 7am-10am ET - RX ONLY - set TX inhibit/Skip Tx in radio
+185,12.160000,12.160000,,Simplex,AM,WWCR-12.2,OFF,,,,,,WWCR Nashville TN Tx#2 - 10am-3pm ET - RX ONLY - set TX inhibit/Skip Tx in radio
+186,9.350000,9.350000,,Simplex,AM,WWCR-9.4,OFF,,,,,,WWCR Nashville TN Tx#2 - 3pm-7pm ET - RX ONLY - set TX inhibit/Skip Tx in radio
+187,4.840000,4.840000,,Simplex,AM,WWCR-4.8,OFF,,,,,,WWCR Nashville TN Tx#3 - 12am-7am & 7pm-12am ET - RX ONLY - set TX inhibit/Skip Tx in radio
+188,13.845000,13.845000,,Simplex,AM,WWCR-13.8,OFF,,,,,,WWCR Nashville TN Tx#3 - 7am-7pm ET - RX ONLY - set TX inhibit/Skip Tx in radio
+189,5.890000,5.890000,,Simplex,AM,WWCR-5.89,OFF,,,,,,WWCR Nashville TN Tx#4 - 12am-7am & 9pm-12am ET - RX ONLY - set TX inhibit/Skip Tx in radio
+190,9.980000,9.980000,,Simplex,AM,WWCR-9.98,OFF,,,,,,WWCR Nashville TN Tx#4 - 7am-7pm ET - RX ONLY - set TX inhibit/Skip Tx in radio
+191,7.520000,7.520000,,Simplex,AM,WWCR-7.52,OFF,,,,,,WWCR Nashville TN Tx#4 - 7pm-9pm ET - RX ONLY - set TX inhibit/Skip Tx in radio
+192,7.490000,7.490000,,Simplex,AM,WBCQ-7.49,OFF,,,,,,WBCQ Monticello ME (The Planet) - time-of-day dependent freq - RX ONLY - set TX inhibit/Skip Tx in radio
+193,9.330000,9.330000,,Simplex,AM,WBCQ-9.33,OFF,,,,,,WBCQ Monticello ME (The Planet) - time-of-day dependent freq - RX ONLY - set TX inhibit/Skip Tx in radio
+194,5.130000,5.130000,,Simplex,AM,WBCQ-5.13,OFF,,,,,,WBCQ Monticello ME (The Planet) - time-of-day dependent freq - RX ONLY - set TX inhibit/Skip Tx in radio
+195,3.265000,3.265000,,Simplex,AM,WBCQ-3.27,OFF,,,,,,WBCQ Monticello ME (The Planet) - time-of-day dependent freq - RX ONLY - set TX inhibit/Skip Tx in radio
+196,6.160000,6.160000,,Simplex,AM,WBCQ-6.16,OFF,,,,,,WBCQ Monticello ME (The Planet) - time-of-day dependent freq - RX ONLY - set TX inhibit/Skip Tx in radio
+197,6.000000,6.000000,,Simplex,AM,RHC-6.0,OFF,,,,,,Radio Havana Cuba - signal reported weak/distorted, transmitters aging - RX ONLY - set TX inhibit/Skip Tx in radio
+198,15.230000,15.230000,,Simplex,AM,RHC-15.2,OFF,,,,,,Radio Havana Cuba - signal reported weak/distorted, transmitters aging - RX ONLY - set TX inhibit/Skip Tx in radio
+199,9.730000,9.730000,,Simplex,AM,RRI-9.73,OFF,,,,,,Radio Romania International (English) - RX ONLY - set TX inhibit/Skip Tx in radio
+200,11.800000,11.800000,,Simplex,AM,RRI-11.8,OFF,,,,,,Radio Romania International (English) - RX ONLY - set TX inhibit/Skip Tx in radio
+201,13.650000,13.650000,,Simplex,AM,RRI-13.65,OFF,,,,,,Radio Romania International (English) - RX ONLY - set TX inhibit/Skip Tx in radio
+202,9.955000,9.955000,,Simplex,AM,WRMI-9.96,OFF,,,,,,WRMI Okeechobee FL - flagship freq, Latin America beam, Blues Radio Intl Sun 9pm ET - RX ONLY - set TX inhibit/Skip Tx in radio
+203,9.395000,9.395000,,Simplex,AM,WRMI-9.40,OFF,,,,,,WRMI Okeechobee FL - Global Outreach freq, strong Central/Eastern US at night - RX ONLY - set TX inhibit/Skip Tx in radio

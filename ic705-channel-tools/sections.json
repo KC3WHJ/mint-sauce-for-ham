@@ -88,5 +88,11 @@
     "description": "HF-GCS (USAF), MARS, Canadian Forces HF, and USCG NMN Chesapeake weather broadcasts. Receive-only. (CH170-182)",
     "group": 14,
     "base_channel": 170
+  },
+  "Shortwave_Broadcast": {
+    "display_name": "Shortwave Broadcast (Enjoyment)",
+    "description": "WWCR, WBCQ, Radio Havana Cuba, Radio Romania International, and WRMI - popular English-language shortwave broadcasters receivable in the eastern US. Receive-only. (CH183-203)",
+    "group": 15,
+    "base_channel": 183
   }
 }
