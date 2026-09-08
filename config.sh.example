@@ -10,7 +10,7 @@ VARA_REG_CODE=""               # shared across VARA HF and VARA FM
 VARA_CALLSIGN_LICENSE="N0CALL" # the callsign your VARA registration covers
 
 # ---- IC-705 / Wine ham stack ----
-AUDIO_DEVICE="hw:1,0"          # `aplay -l` to find your radio's USB audio card
+AUDIO_DEVICE="hw:CODEC,0"      # card's stable ID string (aplay -l / /proc/asound/cards), not a raw index - those shift across reboots/replugs
 IC705_SERIAL_ID="usb-Icom_Inc._IC-705_IC-705_XXXXXXXX-if00"  # ls /dev/serial/by-id/
 DOWNLOADS="$HOME/Downloads"
 WINEPREFIX_HAM="$HOME/.wine32"
