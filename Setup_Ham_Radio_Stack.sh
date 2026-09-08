@@ -388,6 +388,22 @@ echo "Run select-radio.sh to choose the active radio before using any of the"
 echo "apps below - if none is chosen yet, this falls back to the IC-705"
 echo "config from config.sh."
 
+mkdir -p "$HOME/Desktop"
+cat > "$HOME/Desktop/Select Radio.desktop" <<'EOF'
+[Desktop Entry]
+Name=Select Radio
+Comment=Choose which radio is active (used by flrig, Pat, and the audio sync)
+Exec=bash -c "$HOME/.local/bin/select-radio.sh; echo; read -p 'Press Enter to close...'"
+Type=Application
+Terminal=true
+Icon=radio
+Categories=HamRadio;
+EOF
+chmod +x "$HOME/Desktop/Select Radio.desktop"
+gio set "$HOME/Desktop/Select Radio.desktop" "metadata::trusted" true 2>/dev/null || true
+echo "Select Radio.desktop written - without this shortcut, switching radios"
+echo "means remembering to run select-radio.sh by hand every time."
+
 section "Start_Pat.sh / Start_Pat_FM.sh"
 # Both scripts drive whichever radio is currently selected via
 # select-radio.sh (~/radio_profiles/active-radio.conf) - no flrig in this

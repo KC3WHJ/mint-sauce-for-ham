@@ -75,6 +75,27 @@ without needing its own additional group).
 
 ## Using the Channel Picker
 
+Optional Desktop shortcut (create once):
+
+```bash
+cat > ~/Desktop/"IC-705 Channel Picker.desktop" <<EOF
+[Desktop Entry]
+Name=IC-705 Channel Picker
+Comment=Browse and jump to programmed IC-705 memory channels
+Exec=python3 $HOME/mint-sauce-for-ham/ic705-channel-tools/ic705-channel-picker.py
+Type=Application
+Terminal=false
+Icon=radio
+Categories=HamRadio;
+EOF
+chmod +x ~/Desktop/"IC-705 Channel Picker.desktop"
+```
+
+Point `Exec=` at wherever you actually keep this directory — don't deploy a
+separate copy of the picker script or `ic705_channels.json` elsewhere (e.g.
+`~/.local/bin`), since that copy will silently go stale the next time you
+add or edit channels here and rerun `build_channel_index.py`.
+
 **The radio must already be in MEMO mode** (VFO/MEMORY icon → [MEMO] on the
 touchscreen) for "Go to Channel" to actually change the displayed frequency.
 CI-V's memory-select commands (`08`/`08 A0`) set which channel is selected,
