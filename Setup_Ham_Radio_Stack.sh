@@ -280,13 +280,43 @@ fi
 section "VarAC launcher"
 cat > "$HOME/Start_VarAC.sh" <<EOF
 #!/bin/bash
-# Ensure FLRIG is running first
-if ! pgrep -x "flrig" > /dev/null; then
-    flrig &
-    sleep 3
+# Launches flrig (via Start_Flrig_Radio.sh, so it's pre-selected for
+# whichever radio is currently active via select-radio.sh, and audio gets
+# synced too) followed by VarAC. VarAC's own Hamlib rig-control option
+# doesn't work correctly under this Wine build (its dropdown came up with
+# no selection at all), so it uses flrig instead - which means flrig and
+# rigctld (used by Pat/WSJT-X/JS8Call) can never run at the same time,
+# since both want exclusive access to the radio's one CAT port.
+#
+# Auto-stops any running rigctld below rather than refusing to launch -
+# a silent refusal here is invisible (no terminal window from the Desktop
+# icon), which is exactly what a plain refuse-and-exit version did before.
+set -e
+
+ACTIVE="\$HOME/radio_profiles/active-radio.conf"
+if [ -e "\$ACTIVE" ]; then
+    source "\$ACTIVE"
+else
+    AUDIO_DEVICE="$AUDIO_DEVICE"
 fi
-# Launch the VarAC + VARA HF Wine stack with direct radio audio mapping
-env WINARCH="win32" WINEPREFIX="$WINEPREFIX_HAM" AUDIODEV="$AUDIO_DEVICE" wine "$WINEPREFIX_HAM/drive_c/VarAC/VarAC.exe"
+
+if pgrep -f "^rigctld " > /dev/null; then
+    echo "Stopping rigctld so flrig can use the radio's CAT port..."
+    pkill -f "^rigctld " 2>/dev/null || true
+    sleep 1
+fi
+
+if ! pgrep -x "flrig" > /dev/null; then
+    "\$HOME/.local/bin/Start_Flrig_Radio.sh" &
+    for i in \$(seq 1 15); do
+        pgrep -x "flrig" > /dev/null && break
+        sleep 1
+    done
+    sleep 2
+fi
+
+cd "$WINEPREFIX_HAM/dosdevices/c:/VarAC"
+env WINARCH="win32" WINEPREFIX="$WINEPREFIX_HAM" AUDIODEV="\$AUDIO_DEVICE" wine "$WINEPREFIX_HAM/drive_c/VarAC/VarAC.exe"
 EOF
 chmod +x "$HOME/Start_VarAC.sh"
 
