@@ -141,7 +141,7 @@ sudo tee /usr/local/bin/sdrpp-vhf-mode.sh > /dev/null <<'EOF'
 # Switch SDR++ to normal tuner mode (airband, VHF/UHF ham bands) and (re)launch it.
 set -e
 CFG="$HOME/.config/sdrpp/rtl_sdr_config.json"
-pkill -f "^/usr/bin/sdrpp" 2>/dev/null || true
+pkill -x sdrpp 2>/dev/null || true
 sleep 1
 if systemctl is-active --quiet readsb; then
     echo "Stopping readsb so SDR++ can use the RTL-SDR dongle (sudo password may be needed)..."
@@ -163,7 +163,7 @@ sudo tee /usr/local/bin/sdrpp-hf-mode.sh > /dev/null <<'EOF'
 # work while in this mode. Switch back with sdrpp-vhf-mode.sh when done.
 set -e
 CFG="$HOME/.config/sdrpp/rtl_sdr_config.json"
-pkill -f "^/usr/bin/sdrpp" 2>/dev/null || true
+pkill -x sdrpp 2>/dev/null || true
 sleep 1
 if systemctl is-active --quiet readsb; then
     echo "Stopping readsb so SDR++ can use the RTL-SDR dongle (sudo password may be needed)..."
