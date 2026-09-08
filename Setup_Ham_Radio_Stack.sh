@@ -60,7 +60,7 @@ if ! dpkg --print-foreign-architectures | grep -q i386; then
 fi
 sudo apt update
 sudo apt install -y wine winetricks cabextract winbind libhamlib-utils curl \
-    rtl-sdr gpsd gpsd-clients jq wget unzip git flrig
+    rtl-sdr gpsd gpsd-clients jq wget unzip git flrig conky-all
 
 section "Serial port access (dialout group)"
 if ! groups "$USER" | grep -qw dialout; then

@@ -4,6 +4,7 @@ and switch the radio to the selected one over CI-V.
 
 Run build_channel_index.py at least once first (see README.md) so
 ic705_channels.json exists alongside this script."""
+import glob
 import json
 import os
 import tkinter as tk
@@ -11,7 +12,6 @@ from tkinter import ttk
 
 from serial import Serial, SerialException
 
-PORT = "/dev/ttyACM0"
 BAUD = 115200
 TRANSCEIVER_ADDR = bytes.fromhex("A4")
 CONTROLLER_ADDR = bytes.fromhex("E0")
@@ -32,9 +32,20 @@ def encode_bcd(value: int) -> bytes:
     return bytes(encoded)
 
 
+def find_ic705_port() -> str:
+    """Resolves the IC-705's CI-V serial port via its stable by-id symlink,
+    since raw /dev/ttyACMx numbering depends on USB enumeration order and
+    can point at a different device (e.g. a USB GPS receiver) across
+    reboots or replugs."""
+    matches = sorted(glob.glob("/dev/serial/by-id/*IC-705*-if00"))
+    if not matches:
+        raise SerialException("IC-705 not found under /dev/serial/by-id/ (is it plugged in?)")
+    return matches[0]
+
+
 def select_memory(group: int, slot: int):
     """Opens the serial port just long enough to switch the radio's active memory."""
-    ser = Serial(PORT, BAUD, timeout=1)
+    ser = Serial(find_ic705_port(), BAUD, timeout=1)
     try:
         for cmd, data in ((b"\x08\xA0", encode_bcd(group)), (b"\x08", encode_bcd(slot))):
             frame = b"\xfe\xfe" + TRANSCEIVER_ADDR + CONTROLLER_ADDR + cmd + data + b"\xfd"
