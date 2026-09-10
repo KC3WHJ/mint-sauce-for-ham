@@ -336,3 +336,47 @@ session:
   needs its own distinct name since both may feed at once. Now takes the
   name as an argument, driven by `ADSB_FEEDER_NAME` in `config.sh` (one
   value per machine, never committed).
+
+## Backups
+
+Not part of the setup script — a manual, per-machine step, but worth doing
+before any major change (OS upgrade, new radio, etc.). The pattern used
+successfully on this project's own machines:
+
+```bash
+BACKUP_DIR="/path/to/backup-destination/full-backup-$(hostname)-$(date +%Y%m%d-%H%M)"
+mkdir -p "$BACKUP_DIR" && cd "$BACKUP_DIR"
+sudo tar --listed-incremental=snapshot.file --acls --xattrs \
+    --exclude=/proc --exclude=/sys --exclude=/dev --exclude=/run --exclude=/tmp \
+    --exclude=/mnt --exclude=/media \
+    --exclude=/lost+found \
+    --exclude=/var/cache --exclude=/var/tmp \
+    --exclude=/home/*/.cache --exclude=/root/.cache \
+    --exclude=/home/*/.local/share/Trash --exclude=/root/.local/share/Trash \
+    --exclude=/swapfile \
+    -cpf - / 2> backup.log | zstd -T0 -o root-backup-full.tar.zst
+```
+
+This is a GNU tar `--listed-incremental` level-0 (full) backup, compressed
+with zstd — keep `snapshot.file` around if you ever want to take a
+incremental backup on top of it later (`tar --listed-incremental=snapshot.file
+-cpf - /` again, same excludes, picks up only what changed). Restoring a
+full backup **over a live, booted system is risky** — check the backup's
+`etc/fstab` against the live system's real partition UUIDs (`blkid`)
+before ever restoring `/etc/fstab` or `/boot/grub` verbatim, since a
+mismatch (e.g. after a reinstall reformatted `/`) can break the
+bootloader. Prefer restoring from a rescue/live USB, or restoring just
+`~/` onto a fresh install and re-running `Setup_Ham_Radio_Stack.sh` for
+everything else — this project's own machines don't keep any
+system-level restore instructions in this public repo (they live in a
+`README-RESTORE.txt` alongside each machine's actual backup archive,
+off-repo, since that's where the archive itself is anyway).
+
+What actually matters to back up for *this* project specifically, if you'd
+rather not do a full-system image: `~/mint-sauce-for-ham/` (this repo
+checkout, including the git-ignored `config.sh` and any radio-specific
+`~/.flrig/*.prefs`), `~/radio_profiles/`, and `~/.claude/projects/` if
+you're using Claude Code and want its per-project memory to survive too
+(see the note at the very bottom of `~/.claude/projects/-home-ham/memory/MEMORY.md`,
+if you've set one up, for where any additional resilient off-machine notes
+live).
