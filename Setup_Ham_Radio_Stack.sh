@@ -227,6 +227,42 @@ fi
 rigctl -l 2>/dev/null | grep -i "IC-705" || echo "WARNING: Hamlib here has no IC-705 model - may need a newer Hamlib build."
 rigctl -l 2>/dev/null | grep -i "FLRig" || echo "NOTE: Hamlib here has no FLRig backend (only needed if you also use flrig for VarAC)."
 
+section "Disabling CI-V Transceive on the radio"
+# ON by default on the IC-705. Looked like a full fix for rigctld wedging
+# (still listening but never answering any query) in one 2026-09-10 test
+# session, then was disproven in the next one - WSJT-X still triggered the
+# same wedge with this confirmed off. Left enabled anyway since it's a
+# real, harmless improvement (stops unsolicited status broadcasts from
+# interleaving with request/reply exchanges on the same CI-V line) and may
+# still be A contributing factor even though it's not THE fix - see
+# "rigctld can wedge" in README.md for the fuller, still-unresolved
+# picture. No effect on VarAC/WSJT-X/JS8Call/Pat, which all poll for state
+# explicitly instead of relying on these broadcasts.
+#
+# Resolved by glob instead of trusting config.sh's IC705_SERIAL_ID here:
+# that field is only ever used as Start_Pat.sh's fallback default before
+# select-radio.sh has been run once (see README), so on a station that's
+# always used multi-radio profiles it can - and on this one, did - sit at
+# its example placeholder indefinitely without anything actually being
+# broken. This step needs the radio's real path regardless of that.
+IC705_REAL_DEVICE=$(ls /dev/serial/by-id/*IC-705*-if00 2>/dev/null | head -1)
+if [ -n "$IC705_REAL_DEVICE" ]; then
+    python3 - "$IC705_REAL_DEVICE" <<'PYEOF' || echo "WARNING: couldn't disable CI-V Transceive - set it manually (Menu -> Set -> Connectors -> CI-V -> CI-V Transceive -> OFF) if rigctld wedges."
+import sys
+from serial import Serial
+ser = Serial(sys.argv[1], 115200, timeout=2)
+ser.write(bytes.fromhex("fefea4e01a05013100fd"))
+reply = ser.read_until(expected=b"\xfd")
+ser.close()
+if reply[-2:-1] != b"\xfb":
+    print(f"Unexpected reply: {reply.hex()}")
+    sys.exit(1)
+print("CI-V Transceive disabled.")
+PYEOF
+else
+    echo "Skipped (radio's serial device not found - set this manually later if rigctld wedges)."
+fi
+
 section "Wine prefix for VarAC / VARA HF / VARA FM"
 if [ ! -d "$WINEPREFIX_HAM" ]; then
     WINEARCH=win32 WINEPREFIX="$WINEPREFIX_HAM" wineboot
@@ -388,7 +424,17 @@ if [ -f "$VARAC_DESKTOP" ]; then
     echo "Repointed $VARAC_DESKTOP at Start_VarAC.sh."
 fi
 
-section "Installing JS8Call, WSJT-X, GridTracker (.deb packages)"
+section "Installing JS8Call, WSJT-X (distro repo), GridTracker (.deb package)"
+# JS8Call and WSJT-X specifically from the distro repo, NOT the upstream
+# GitHub .deb releases: GitHub's JS8Call build is Qt6, whose PipeWire
+# integration has a real bug ("Requested [input/output] audio format is
+# not supported on device") with no working fix found - Mint's own repo
+# build is Qt5 and confirmed working. WSJT-X's GitHub build happens to be
+# fine (Qt5 too), but installing both from the same source keeps them from
+# drifting apart, and matches the general rule for this stack: prefer the
+# distro repo over upstream .deb releases when both exist.
+sudo apt install -y js8call wsjtx
+
 install_deb() {
     local pattern="$1"
     local file
@@ -400,8 +446,8 @@ install_deb() {
     echo "Installing $file..."
     sudo apt install -y "$file"
 }
-install_deb "$DOWNLOADS/js8call*.deb"
-install_deb "$DOWNLOADS/wsjtx*.deb"
+# GridTracker has no distro repo package - this one really does need the
+# upstream .deb.
 install_deb "$DOWNLOADS/GridTracker2*.deb"
 
 section "Installing Pat Winlink (.deb package)"
@@ -678,6 +724,96 @@ EOF
 chmod +x "$HOME/Start_Pat_FM.sh"
 echo "Start_Pat.sh and Start_Pat_FM.sh written (radio-agnostic via active-radio.conf)."
 
+section "Start_WSJTX.sh / Start_JS8Call.sh"
+# Unlike Start_Pat.sh/Start_Pat_FM.sh, these never kill a pre-existing
+# rigctld - WSJT-X, JS8Call, Pat, and Conky's display can all share one
+# rigctld over the network at once. Each only starts rigctld if nothing's
+# there yet, and only stops it again on exit if it's the one that started
+# it - if it was already running (shared with something else), it's left
+# alone for whatever else is using it.
+for APP in WSJTX:wsjtx JS8Call:js8call; do
+    SCRIPT_NAME="${APP%%:*}"
+    BIN="${APP##*:}"
+cat > "$HOME/Start_$SCRIPT_NAME.sh" <<EOF
+#!/bin/bash
+set -e
+
+ACTIVE="\$HOME/radio_profiles/active-radio.conf"
+if [ -e "\$ACTIVE" ]; then
+    source "\$ACTIVE"
+else
+    RIG_MODEL=3085
+    RIG_NAME="IC-705"
+    SERIAL_DEVICE="/dev/serial/by-id/$IC705_SERIAL_ID"
+    BAUD_RATE=115200
+fi
+
+for var in RIG_MODEL RIG_NAME SERIAL_DEVICE BAUD_RATE; do
+    val="\${!var}"
+    if [ -z "\$val" ] || [[ "\$val" == *CHANGE_ME* ]]; then
+        echo "ERROR: active radio (\$RIG_NAME) still has a placeholder for \$var - fill it in first."
+        exit 1
+    fi
+done
+if [ ! -e "\$SERIAL_DEVICE" ]; then
+    echo "ERROR: \$RIG_NAME's serial device (\$SERIAL_DEVICE) doesn't exist. Is it plugged in?"
+    exit 1
+fi
+
+rigctld_responsive() {
+    timeout 3 rigctl -m 2 -r localhost:4532 f > /dev/null 2>&1
+}
+
+# Unlike Start_Pat.sh/Start_Pat_FM.sh, this never kills a pre-existing
+# rigctld - WSJT-X, JS8Call, Pat, and Conky's display can all share one
+# rigctld over the network at once, so a running instance here likely means
+# something else is already using it and shouldn't be yanked out from
+# under it.
+#
+# The trap is registered up front, before anything is started - not after,
+# like a first version of this script had it. That version left a wedged
+# rigctld running as an orphan on the exact failure path below (rigctld
+# started but never became responsive): the early \`exit 1\` ran before the
+# trap was ever registered, so cleanup() never fired. Confirmed 2026-09-10.
+WE_STARTED_RIGCTLD=0
+cleanup() {
+    if [ "\$WE_STARTED_RIGCTLD" = "1" ]; then
+        pkill -f "^rigctld " 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+if ! rigctld_responsive; then
+    WE_STARTED_RIGCTLD=1
+    PTT_ARGS=()
+    [ -n "\$PTT_TYPE" ] && PTT_ARGS=(-P "\$PTT_TYPE")
+    # Up to two attempts: rigctld itself has been seen to come up wedged
+    # (listening but never answering) on a fresh start, not just as a
+    # stale leftover - if the first attempt doesn't become responsive
+    # within 10s, kill it and try once more before giving up.
+    for attempt in 1 2; do
+        rigctld -m "\$RIG_MODEL" -r "\$SERIAL_DEVICE" -s "\$BAUD_RATE" "\${PTT_ARGS[@]}" -t 4532 &
+        for i in \$(seq 1 10); do
+            rigctld_responsive && break 2
+            sleep 1
+        done
+        echo "rigctld didn't respond within 10s (attempt \$attempt/2)..."
+        pkill -f "^rigctld " 2>/dev/null || true
+        sleep 1
+    done
+    if ! rigctld_responsive; then
+        echo "ERROR: rigctld didn't come up talking to \$RIG_NAME after 2 attempts."
+        echo "Double check SERIAL_DEVICE/BAUD_RATE in \$ACTIVE against the radio."
+        exit 1
+    fi
+fi
+
+$BIN
+EOF
+    chmod +x "$HOME/Start_$SCRIPT_NAME.sh"
+done
+echo "Start_WSJTX.sh and Start_JS8Call.sh written (radio-agnostic via active-radio.conf)."
+
 section "stop-pat.sh"
 mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/stop-pat.sh" <<'EOF'
@@ -718,6 +854,39 @@ Categories=HamRadio;
 EOF
 chmod +x "$HOME/Desktop/Stop Pat Winlink.desktop"
 echo "stop-pat.sh and its Desktop shortcut written."
+
+section "fix-rigctld.sh"
+cat > "$HOME/.local/bin/fix-rigctld.sh" <<'EOF'
+#!/bin/bash
+# Clears a wedged rigctld - still running and listening on port 4532, but
+# no longer answering any query (a plain `rigctl f` hangs instead of
+# erroring). See "rigctld can wedge" in README.md - not fully understood
+# yet, but killing it and letting the next launcher start a fresh one has
+# cleared it every time so far. Radio hardware is never affected.
+if pgrep -f "^rigctld " > /dev/null; then
+    echo "Stopping rigctld..."
+    pkill -f "^rigctld " 2>/dev/null
+    sleep 1
+    echo "Done. Relaunch whichever app you were using (Pat/VarAC/WSJT-X/JS8Call) -"
+    echo "it'll start a fresh rigctld automatically."
+else
+    echo "No rigctld running - nothing to fix."
+fi
+EOF
+chmod +x "$HOME/.local/bin/fix-rigctld.sh"
+
+cat > "$HOME/Desktop/Fix Rig Control.desktop" <<EOF
+[Desktop Entry]
+Name=Fix Rig Control
+Comment=Clears a wedged rigctld (WSJT-X/JS8Call/Pat won't connect - see README)
+Exec=bash -c "\$HOME/.local/bin/fix-rigctld.sh; echo; read -p 'Press Enter to close...'"
+Type=Application
+Terminal=true
+Icon=process-stop
+Categories=HamRadio;
+EOF
+chmod +x "$HOME/Desktop/Fix Rig Control.desktop"
+echo "fix-rigctld.sh and its Desktop shortcut written."
 
 section "GridTracker <-> JS8Call UDP alignment"
 JS8_INI="$HOME/.config/JS8Call.ini"
@@ -856,6 +1025,28 @@ Icon=mail-send-receive
 Terminal=false
 EOF
 fi
+
+cat > "$HOME/Desktop/WSJT-X.desktop" <<EOF
+[Desktop Entry]
+Name=WSJT-X
+Comment=Starts rigctld first if it isn't already running
+Exec=$HOME/Start_WSJTX.sh
+Type=Application
+StartupNotify=true
+Icon=wsjtx_icon
+Terminal=false
+EOF
+
+cat > "$HOME/Desktop/JS8Call.desktop" <<EOF
+[Desktop Entry]
+Name=JS8Call
+Comment=Starts rigctld first if it isn't already running
+Exec=$HOME/Start_JS8Call.sh
+Type=Application
+StartupNotify=true
+Icon=js8call_icon
+Terminal=false
+EOF
 
 if [ -f "$SCRIPT_DIR/ic705-channel-tools/ic705-channel-picker.py" ]; then
     if [ ! -f "$SCRIPT_DIR/ic705-channel-tools/ic705_channels.json" ]; then

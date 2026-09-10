@@ -113,15 +113,47 @@ in this repo for real, working examples. Fields:
   if it doesn't match yet.
 - **`rigctld` can wedge** — stay running and still listening on port 4532,
   but stop actually answering any query (a plain `rigctl f` hangs
-  indefinitely instead of erroring). Seen once so far, cause not confirmed;
-  a suspect is `Start_Pat.sh`/`Start_Pat_FM.sh`'s own kill-and-restart logic
-  racing with Conky's independent 2-second `rigctl` polling
-  (`ham-radio-freq.sh`/`ham-radio-mode.sh`) right as a fresh `rigctld` comes
-  up. `kill`-ing and letting the launcher script restart it clears it
-  immediately, radio hardware is unaffected. Every direct `rigctl` call in
-  `Setup_Ham_Radio_Stack.sh`'s generated launchers is now `timeout`-wrapped
-  (one, the mode-set line, wasn't) specifically so a wedge like this hangs
-  the launcher for a bounded few seconds instead of forever.
+  indefinitely instead of erroring). Not fully solved as of 2026-09-10;
+  here's what's actually confirmed so far, and what isn't:
+  - Caught via `rigctld -vvvvv`: WSJT-X (and other Hamlib NET rigctl
+    clients - JS8Call, gqrx) sends `\get_powerstat` as part of its own
+    connection handshake, which this Hamlib version implements for the
+    IC-705 as CI-V `18` with *no* data byte. The IC-705's own CI-V
+    reference only documents `00`/`01` (off/on) forms for `18` - there's
+    no "just tell me the status" variant - so the radio always replies
+    `NG` (command rejected) to it. Hamlib has a known history of removing
+    `get_powerstat` entirely for other Icom models with this same gap
+    (ID-5100/ID-4100/ID-31/ID-51, per its NEWS file); as of the Hamlib
+    version installed here, the IC-705 (model 3085) hasn't gotten the same
+    treatment.
+  - Turning off the IC-705's `CI-V Transceive` setting (ON by default;
+    Menu → Set → Connectors → CI-V → CI-V Transceive → OFF, or remotely
+    over CI-V with `1A 05 0131 00`) looked like a full fix in one test
+    session (stable across several `rigctld` restarts) but was
+    **disproven** in the next one - WSJT-X still triggered the same `18`
+    rejection and wedge with Transceive confirmed off. It may still be A
+    contributing factor, just not THE fix on its own.
+  - Bottom line: the `\get_powerstat` rejection is real and reproducible,
+    but doesn't fully explain why it's sometimes tolerated (rigctld/the
+    app carries on fine) and sometimes wedges the whole connection. Until
+    that's understood, treat this as a known rough edge, not solved.
+  - Practical mitigation in place: `Start_WSJTX.sh`/`Start_JS8Call.sh`
+    retry once (kill + fresh rigctld start) before giving up, and every
+    direct `rigctl` call in `Setup_Ham_Radio_Stack.sh`'s generated
+    launchers is `timeout`-wrapped so a wedge hangs a launcher for a
+    bounded few seconds instead of forever. If a launcher still fails
+    after the retry, `pkill -f "^rigctld "` and try again by hand usually
+    clears it - radio hardware is never affected. The **Fix Rig Control**
+    Desktop shortcut (`~/.local/bin/fix-rigctld.sh`) does exactly that
+    `pkill` in one click, for whenever this comes up mid-session.
+- **A shell `trap` for cleanup has to be registered before anything it's
+  meant to clean up can fail** - not after, "once we're past the risky
+  part." `Start_WSJTX.sh`/`Start_JS8Call.sh` originally registered their
+  `trap cleanup EXIT` *after* the rigctld-start retry loop; when that loop
+  hit the wedge above and exited on failure, the trap had never been set
+  up yet, so cleanup() never ran and the freshly-started, wedged rigctld
+  was left as an orphaned process. Fixed by registering the trap first,
+  before rigctld is ever started.
 - **VARA HF's auto-config step silently no-ops on every fresh install.** It
   edits `VARA.ini` to set the soundcard devices and registration code, but
   that file only exists after VARA HF has been launched at least once —
@@ -191,6 +223,13 @@ already done before acting on it.
   the fallback default for `Start_Pat.sh`/`Start_Pat_FM.sh` before you've
   run `select-radio.sh` for the first time, or if you only ever use the one
   radio — see [Multi-radio support](#multi-radio-support) for anything else.
+- `Start_WSJTX.sh`/`Start_JS8Call.sh` (Desktop shortcuts: WSJT-X, JS8Call)
+  start `rigctld` first if nothing's using it yet, same as
+  `Start_Pat.sh`/`Start_Pat_FM.sh` — unlike those, they never kill a
+  pre-existing `rigctld`, since WSJT-X/JS8Call/Pat/Conky's display can all
+  share one over the network at once, and only stop it again on exit if
+  they're the one that started it (so a shared instance used by something
+  else is never pulled out from under it).
 - Only one of {VarAC, Pat Winlink HF, Pat Winlink FM, WSJT-X, JS8Call} can
   run at a time — they all share the one radio. Same for readsb vs. SDR++,
   and SDR++'s own VHF/UHF vs. HF/Shortwave modes — a single RTL-SDR dongle
@@ -221,6 +260,43 @@ already done before acting on it.
   registration code of its own (it's free) and no separate audio device
   setting either — it drives VARA HF as its modem engine, so VARA HF's own
   soundcard config is what actually matters for audio.
+- **JS8Call's official GitHub `.deb` release is built against Qt6**, whose
+  PipeWire/multimedia integration has a real bug ("Requested [input/output]
+  audio format is not supported on device") with no working fix found.
+  The distro repo build (what `apt install js8call` gets you) is Qt5 and
+  confirmed working — that's what this script installs now, instead of a
+  manually-downloaded `.deb`. WSJT-X's GitHub build happens to be fine too
+  (also Qt5), but it's installed the same way for consistency. GridTracker
+  has no distro repo package, so it's still the manually-downloaded `.deb`.
+  General rule for this stack: prefer the distro repo over upstream `.deb`
+  releases when both exist.
+- **The ID timer's Start/Cancel buttons could silently stop responding
+  to clicks** - confirmed and fixed 2026-09-10. It uses
+  `overrideredirect(True)` + `-topmost` to stay always-on-top of normal
+  windows, but overrideredirect takes a window out of window-manager
+  management entirely, so `-topmost` only takes effect once at creation -
+  it does not defend against falling behind later as other windows get
+  raised. After a normal session of opening several other apps, the
+  window was still being *drawn* on top (looked completely normal) but
+  had silently fallen behind the desktop icon layer in the real X11
+  input-stacking order, so clicks on Start/Cancel landed on the desktop
+  instead of the buttons - invisible unless you specifically check window
+  stacking (`Xlib`'s `query_pointer().child`), not just what's rendered.
+  Fixed by having the window re-raise itself (`root.lift()`) every 3
+  seconds via its own tick loop, rather than trusting the one-time
+  `-topmost` hint to hold.
+- **flrig can silently reset its own serial port to `NONE`** - confirmed
+  2026-09-10, right after a "Transceiver not responding" connection
+  failure (itself a one-off; the radio and port were both confirmed fine
+  moments before and after with a raw CI-V test). Every launch after that
+  failed the same way, since `Start_Flrig_Radio.sh` only pre-selects which
+  rig to load (`xcvr_name` in `flrig.prefs`) and had always trusted that
+  rig's own prefs file (`<RIG>.prefs`, e.g. `IC-705.prefs`) to still have
+  the right `xcvr_serial_port` from a one-time manual GUI setup - with no
+  way to self-heal once flrig overwrote it. Fixed the same way as every
+  other "don't trust a possibly-stale saved value" spot in this project:
+  `Start_Flrig_Radio.sh` now force-sets `xcvr_serial_port` to the active
+  profile's `SERIAL_DEVICE` on every launch, not just `xcvr_name`.
 
 ## Fresh-install verification
 

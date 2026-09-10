@@ -34,6 +34,26 @@ else
     printf '; FLTK preferences file format 1.0\n; vendor: w1hkj.com\n; application: flrig\n\n[.]\n\nxcvr_name:%s\n' "$FLRIG_NAME" >> "$FLRIG_PREFS"
 fi
 
+# The rig-specific prefs file (e.g. IC-705.prefs) is where xcvr_serial_port
+# actually lives - xcvr_name above only tells flrig which one to load.
+# This used to be left alone, assuming whatever was last saved there (from
+# a one-time manual GUI setup) would still be correct - but confirmed
+# 2026-09-10 it isn't reliable: flrig can save xcvr_serial_port back to
+# NONE on its own (seen after a failed "transceiver not responding"
+# connection attempt), silently breaking every launch after that with no
+# way to self-heal. Now force it to match the active profile's
+# SERIAL_DEVICE on every launch, the same way rigctld/Pat/etc. never trust
+# a possibly-stale saved value either.
+RIG_PREFS="$FLRIG_CONFIG_DIR/${FLRIG_NAME}.prefs"
+if [ -f "$RIG_PREFS" ] && grep -q "^xcvr_serial_port:" "$RIG_PREFS"; then
+    sed -i "s|^xcvr_serial_port:.*|xcvr_serial_port:${SERIAL_DEVICE}|" "$RIG_PREFS"
+else
+    echo "NOTE: $RIG_PREFS doesn't exist yet or has no xcvr_serial_port line -"
+    echo "flrig hasn't been run for this rig before. Launch it once, set the"
+    echo "serial port yourself in its Config/Setup/Transceiver menu, and this"
+    echo "script will keep it pointed at the right device from then on."
+fi
+
 echo "Active radio: $RIG_NAME -- pre-selected in $FLRIG_BIN (config: $FLRIG_CONFIG_DIR)."
 
 if [ -x "$HOME/.local/bin/sync-radio-audio.sh" ]; then

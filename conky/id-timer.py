@@ -219,4 +219,22 @@ cancel_btn = tk.Button(
 )
 cancel_btn.pack(side=tk.LEFT, padx=3)
 
+
+def keep_on_top():
+    """overrideredirect windows aren't managed by the window manager, so
+    -topmost only takes effect once at creation - it does NOT defend
+    against falling behind later as other windows get raised (confirmed
+    2026-09-10: after a normal session of opening flrig/VarAC/WSJT-X/etc.,
+    this window was still being *drawn* on top but had silently fallen
+    behind the desktop icon layer in the real X11 input-stacking order, so
+    it looked fine but Start/Cancel clicks landed on the desktop instead
+    of the buttons - completely invisible unless you specifically check
+    window stacking, not just what's rendered on screen). root.lift()
+    re-raises it; cheap enough to just do on every tick.
+    """
+    root.lift()
+    root.after(3000, keep_on_top)
+
+
+keep_on_top()
 root.mainloop()
