@@ -1,7 +1,7 @@
 {
   "HF_Nets_National": {
     "display_name": "HF Nets (National)",
-    "description": "National/international HF amateur nets with fixed frequencies: Hurricane Watch Net, SATERN, Maritime Mobile Service Network, NYS RACES. (CH151-157 -> IC-7300 memory 1-7)",
+    "description": "National/international HF amateur nets with fixed frequencies: Hurricane Watch Net, SATERN, Maritime Mobile Service Network, NYS RACES, plus 20/40/80m nets added 2026-09-10 from netfinder.radio. (CH151-157 -> IC-7300 memory 1-7; CH204-226 -> IC-7300 memory 54-76)",
     "base_channel": 151
   },
   "Time_Standard_Stations": {
