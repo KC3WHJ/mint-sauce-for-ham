@@ -1048,17 +1048,17 @@ Icon=js8call_icon
 Terminal=false
 EOF
 
-if [ -f "$SCRIPT_DIR/ic705-channel-tools/ic705-channel-picker.py" ]; then
-    if [ ! -f "$SCRIPT_DIR/ic705-channel-tools/ic705_channels.json" ]; then
-        echo "Building the IC-705 channel index from the tracked CSVs..."
-        (cd "$SCRIPT_DIR/ic705-channel-tools" && python3 build_channel_index.py) || \
-            echo "WARNING: build_channel_index.py failed - see ic705-channel-tools/README.md."
+if [ -f "$SCRIPT_DIR/channel-tools/channel-picker.py" ]; then
+    if ! compgen -G "$SCRIPT_DIR/channel-tools/channels_*.json" > /dev/null; then
+        echo "Building the channel index(es) from the tracked CSVs..."
+        (cd "$SCRIPT_DIR/channel-tools" && python3 build_channel_index.py) || \
+            echo "WARNING: build_channel_index.py failed - see channel-tools/README.md."
     fi
-cat > "$HOME/Desktop/IC-705 Channel Picker.desktop" <<EOF
+cat > "$HOME/Desktop/Channel Picker.desktop" <<EOF
 [Desktop Entry]
-Name=IC-705 Channel Picker
+Name=Channel Picker
 Comment=Browse programmed memory channels by name/group and jump to one
-Exec=python3 "$SCRIPT_DIR/ic705-channel-tools/ic705-channel-picker.py"
+Exec=python3 "$SCRIPT_DIR/channel-tools/channel-picker.py"
 Type=Application
 StartupNotify=true
 Icon=radio

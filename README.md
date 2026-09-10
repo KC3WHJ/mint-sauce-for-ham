@@ -164,17 +164,21 @@ in this repo for real, working examples. Fields:
   already silently skipped, either re-run the script or open VARA HF once
   yourself, close it, then re-run.
 
-## IC-705 memory channel tools
+## Memory channel tools
 
-`ic705-channel-tools/` is a separate, self-contained toolkit for
-programming the IC-705's memory channels over CI-V and browsing them from
-a desktop app — independent of the main setup script above. It can turn a
-RAINWorks-style "Standalone Analog Programming Guide" PDF into memory
-channels automatically, or you can build/edit the channel CSVs by hand.
-See [`ic705-channel-tools/README.md`](ic705-channel-tools/README.md) for
-the full workflow, file layout, and known limitations (e.g. the radio must
-be in MEMO mode on its own touchscreen for remote channel-switching to
-take visible effect — there's no CI-V command to force that).
+`channel-tools/` is a separate, self-contained toolkit for programming
+memory channels over CI-V and browsing them from a desktop app —
+independent of the main setup script above. Radio-neutral: it reads
+whichever radio is active in `radio_profiles/active-radio.conf`, same as
+everything else in this project. Works with the IC-705 (all 16 channel
+groups, including VHF/UHF repeaters) and the IC-7300 (the 4 HF-only
+sections, since it has no VHF/UHF or memory-group concept at all). It can
+turn a RAINWorks-style "Standalone Analog Programming Guide" PDF into
+memory channels automatically, or you can build/edit the channel CSVs by
+hand. See [`channel-tools/README.md`](channel-tools/README.md) for the
+full workflow, file layout, and known limitations (e.g. the radio must be
+in MEMO mode on its own touchscreen for remote channel-switching to take
+visible effect — there's no CI-V command to force that).
 
 ## Prerequisites
 

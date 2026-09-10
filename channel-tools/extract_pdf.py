@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Best-effort extractor for RAINWorks-style "Standalone Analog Programming
-Guide" PDFs -> per-section CSVs + sections.json for this toolkit.
+Guide" PDFs -> per-section CSVs + channel_maps/ic705.json for this toolkit.
 
 This is tuned to the specific table layout RAINWorks uses (two row formats:
 a "Fixed Base Bank" table with BW/Tone/TX-Off columns, and a "Local/Extended"
@@ -139,12 +139,22 @@ def main():
         print(f"{sec['key']}: {len(sec['rows'])} channels -> {csv_path}")
         total += len(sec["rows"])
 
-    with open(os.path.join(out_dir, "sections.json"), "w") as f:
+    # RAINWorks guides are VHF/UHF+HF repeater listings -- inherently a
+    # grouped-memory (multi-band) radio's territory, so this writes an
+    # IC-705-shaped map by default. Merge the new sections into
+    # channel_maps/ic705.json (or another grouped radio's map) by hand if
+    # you're adding to an existing set rather than starting fresh; this
+    # always overwrites.
+    maps_dir = os.path.join(out_dir, "channel_maps")
+    os.makedirs(maps_dir, exist_ok=True)
+    map_path = os.path.join(maps_dir, "ic705.json")
+    with open(map_path, "w") as f:
         json.dump(sections_json, f, indent=2)
 
-    print(f"\nExtracted {total} channels across {len(sections)} sections.")
+    print(f"\nExtracted {total} channels across {len(sections)} sections -> {map_path}")
     print("REVIEW THE CSVs before trusting them -- this is a best-effort text-layout parser,")
     print("not a guaranteed-correct PDF table reader. Compare a few rows against the source PDF.")
+    print("Then run build_channel_index.py to regenerate channels_ic705.json.")
 
 
 if __name__ == "__main__":

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""IC-705 channel picker: browse programmed memory channels by name or group
-and switch the radio to the selected one over CI-V.
+"""Channel picker: browse programmed memory channels by name or group and
+switch the radio to the selected one over CI-V. Radio-neutral -- it reads
+~/radio_profiles/active-radio.conf (the same file every other launcher in
+this project uses) to know which radio, port, and CI-V dialect to speak.
 
 Run build_channel_index.py at least once first (see README.md) so
-ic705_channels.json exists alongside this script."""
-import glob
+channels_<radio>.json exists alongside this script."""
 import json
 import os
+import re
 import subprocess
 import time
 import tkinter as tk
@@ -15,11 +17,32 @@ from tkinter import ttk
 from serial import Serial, SerialException
 
 BAUD = 115200
-TRANSCEIVER_ADDR = bytes.fromhex("A4")
 CONTROLLER_ADDR = bytes.fromhex("E0")
 HERE = os.path.dirname(os.path.abspath(__file__))
-CHANNELS_FILE = os.path.join(HERE, "ic705_channels.json")
-SECTIONS_FILE = os.path.join(HERE, "sections.json")
+ACTIVE_RADIO_CONF = os.path.expanduser("~/radio_profiles/active-radio.conf")
+
+
+def radio_key(rig_name: str) -> str:
+    """'IC-705' -> 'ic705', 'IC-7300' -> 'ic7300' -- matches channel_maps/*.json
+    and channels_*.json filenames."""
+    return re.sub(r"[^a-z0-9]", "", rig_name.lower())
+
+
+def load_active_profile() -> dict:
+    """Minimal parser for radio_profiles/*.conf's plain KEY="value" lines --
+    these are sourced by bash elsewhere, but this tool only needs to read
+    a handful of keys, not execute the file."""
+    if not os.path.exists(ACTIVE_RADIO_CONF):
+        raise SerialException(f"No radio selected -- run Select Radio first ({ACTIVE_RADIO_CONF} doesn't exist).")
+    values = {}
+    with open(ACTIVE_RADIO_CONF) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            values[key.strip()] = val.strip().strip('"')
+    return values
 
 
 def encode_bcd(value: int) -> bytes:
@@ -32,17 +55,6 @@ def encode_bcd(value: int) -> bytes:
         encoded.append(0x00)
     encoded.reverse()
     return bytes(encoded)
-
-
-def find_ic705_port() -> str:
-    """Resolves the IC-705's CI-V serial port via its stable by-id symlink,
-    since raw /dev/ttyACMx numbering depends on USB enumeration order and
-    can point at a different device (e.g. a USB GPS receiver) across
-    reboots or replugs."""
-    matches = sorted(glob.glob("/dev/serial/by-id/*IC-705*-if00"))
-    if not matches:
-        raise SerialException("IC-705 not found under /dev/serial/by-id/ (is it plugged in?)")
-    return matches[0]
 
 
 def stop_conflicting_processes() -> list[str]:
@@ -69,17 +81,23 @@ def stop_conflicting_processes() -> list[str]:
     return stopped
 
 
-def select_memory(group: int, slot: int) -> list[str]:
+def select_memory(profile: dict, group: int, slot: int) -> list[str]:
     """Opens the serial port just long enough to switch the radio's active
     memory. Returns the names of any conflicting process that had to be
     stopped first (see stop_conflicting_processes), so the caller can tell
     the user - they aren't restarted automatically, since this tool has no
     way to know which one (if any) the user wants back."""
+    serial_device = profile["SERIAL_DEVICE"]
+    transceiver_addr = bytes.fromhex(profile["CIV_ADDR"])
+    memory_groups = profile.get("MEMORY_GROUPS", "true") == "true"
+
     stopped = stop_conflicting_processes()
-    ser = Serial(find_ic705_port(), BAUD, timeout=1)
+    ser = Serial(serial_device, BAUD, timeout=1)
     try:
-        for cmd, data in ((b"\x08\xA0", encode_bcd(group)), (b"\x08", encode_bcd(slot))):
-            frame = b"\xfe\xfe" + TRANSCEIVER_ADDR + CONTROLLER_ADDR + cmd + data + b"\xfd"
+        frames = [(b"\x08\xA0", encode_bcd(group)), (b"\x08", encode_bcd(slot))] \
+            if memory_groups else [(b"\x08", encode_bcd(slot))]
+        for cmd, data in frames:
+            frame = b"\xfe\xfe" + transceiver_addr + CONTROLLER_ADDR + cmd + data + b"\xfd"
             ser.write(frame)
             reply = ser.read_until(expected=b"\xfd")
             if not reply or reply[-2:-1] != b"\xfb":
@@ -97,14 +115,25 @@ def select_memory(group: int, slot: int) -> list[str]:
 class ChannelPicker(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("IC-705 Channel Picker")
+        self.profile = load_active_profile()
+        self.rig_name = self.profile.get("RIG_NAME", "?")
+        self.key = radio_key(self.rig_name)
+
+        self.title(f"Channel Picker - {self.rig_name}")
         self.geometry("580x640")
 
-        with open(CHANNELS_FILE) as f:
+        channels_file = os.path.join(HERE, f"channels_{self.key}.json")
+        map_file = os.path.join(HERE, "channel_maps", f"{self.key}.json")
+        if not os.path.exists(channels_file) or not os.path.exists(map_file):
+            raise SerialException(
+                f"No channel map for {self.rig_name} ({self.key}) - "
+                f"expected {map_file} and {channels_file}. See README.md.")
+
+        with open(channels_file) as f:
             self.channels = json.load(f)
-        with open(SECTIONS_FILE) as f:
+        with open(map_file) as f:
             section_meta = json.load(f)
-        ordered_meta = sorted(section_meta.values(), key=lambda m: m["group"])
+        ordered_meta = sorted(section_meta.values(), key=lambda m: m.get("group", 0))
         self.sections = ["All groups"] + [m["display_name"] for m in ordered_meta]
 
         top = ttk.Frame(self, padding=8)
@@ -177,7 +206,7 @@ class ChannelPicker(tk.Tk):
             self.status_var.set(f"CH{ch['channel_number']} ({ch['name']}) is manual-only — not programmed on the radio")
             return
         try:
-            stopped = select_memory(ch["group"], ch["slot"])
+            stopped = select_memory(self.profile, ch["group"], ch["slot"])
             msg = f"Switched radio to CH{ch['channel_number']} — {ch['name']} ({ch['rx_mhz']:.4f} MHz)"
             if stopped:
                 msg += f" (stopped {' and '.join(stopped)} first — restart it yourself if you need it back)"
