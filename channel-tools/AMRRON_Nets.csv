@@ -1,0 +1,8 @@
+Channel Number,Receive Frequency,Transmit Frequency,Offset Frequency,Offset Direction,Operating Mode,Name,Tone Mode,CTCSS,DCS,DTCS Code,Transmit Power,Skip,Comment
+227,14.338000,14.338000,,Simplex,USB,AMRRON-20V,OFF,,,,,,AmRRON 20m National Voice Net - 1st & 3rd Tue 1900Z (amrron.com)
+228,14.110000,14.110000,,Simplex,USB,AMRRON-20D,OFF,,,,,,AmRRON 20m National Digital Net (Contestia 4/250) - 1st & 3rd Tue 2000Z (amrron.com)
+229,7.238000,7.238000,,Simplex,LSB,AMRRON-40V,OFF,,,,,,AmRRON 40m Regional Voice Net (Summer) - 1st & 3rd Thu 8pm local (amrron.com)
+230,3.818000,3.818000,,Simplex,LSB,AMRRON-80V,OFF,,,,,,AmRRON 80m Regional Voice Net (Winter) - 1st & 3rd Thu 8pm local (amrron.com)
+231,7.110000,7.110000,,Simplex,USB,AMRRON-40D,OFF,,,,,,AmRRON 40m Regional Digital Net (Contestia 4/250, Summer) - 1st & 3rd Tue 8pm local (amrron.com)
+232,3.588000,3.588000,,Simplex,USB,AMRRON-80D,OFF,,,,,,AmRRON 80m Regional Digital Net (Contestia 4/250, Winter) - 1st & 3rd Tue 8pm local (amrron.com)
+233,3.588000,3.588000,,Simplex,USB,AMRRON-MTZ,OFF,,,,,,AmRRON MTZ/PTZ Cascadia Rising Response Group Digital Net (Contestia 4/250) - 2nd & 4th Tue 8pm Pacific, same freq as AMRRON-80D different schedule (amrron.com)

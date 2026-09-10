@@ -94,5 +94,11 @@
     "description": "WWCR, WBCQ, Radio Havana Cuba, Radio Romania International, and WRMI - popular English-language shortwave broadcasters receivable in the eastern US. Receive-only. (CH183-203)",
     "group": 15,
     "base_channel": 183
+  },
+  "AMRRON_Nets": {
+    "display_name": "AmRRON",
+    "description": "AmRRON national/regional voice and digital (Contestia 4/250) nets - added 2026-09-10 from amrron.com's own current nets page. Digital nets are programmed at their underlying USB/LSB carrier frequency (decoded via fldigi or similar), same approach as this project's other digital-net channels. (CH227-233)",
+    "group": 16,
+    "base_channel": 227
   }
 }
