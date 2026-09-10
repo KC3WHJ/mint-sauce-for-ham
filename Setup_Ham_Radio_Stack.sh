@@ -60,7 +60,9 @@ if ! dpkg --print-foreign-architectures | grep -q i386; then
 fi
 sudo apt update
 sudo apt install -y wine winetricks cabextract winbind libhamlib-utils curl \
-    rtl-sdr gpsd gpsd-clients jq wget unzip git flrig conky-all
+    rtl-sdr gpsd gpsd-clients jq wget unzip git flrig conky-all \
+    lm-sensors python3-tk pulseaudio-utils sound-theme-freedesktop \
+    wmctrl x11-utils python3-serial
 
 section "Serial port access (dialout group)"
 if ! groups "$USER" | grep -qw dialout; then
@@ -192,6 +194,27 @@ curl -L -o /tmp/axfeed.sh https://adsbexchange.com/feed.sh
 sudo bash /tmp/axfeed.sh
 rm -f /tmp/axfeed.sh
 
+# The installer auto-generates a feeder/site name from your location that is
+# not reliably correct - it's come up wrong with a different value on every
+# install so far (EE-KPNE, EE-DT-KPNE). fix-adsb-feeder-name.sh corrects it
+# to whatever ADSB_FEEDER_NAME is set to in config.sh - important to set if
+# you run more than one feeder (e.g. a laptop and a desktop station both
+# feeding at once), since each needs a distinct name.
+cp -n "$SCRIPT_DIR/fix-adsb-feeder-name.sh" "$HOME/fix-adsb-feeder-name.sh"
+chmod +x "$HOME/fix-adsb-feeder-name.sh"
+if [ -n "$ADSB_FEEDER_NAME" ]; then
+    if [ -f /etc/default/adsbexchange ] && ! grep -q "^USER=\"$ADSB_FEEDER_NAME\"" /etc/default/adsbexchange; then
+        echo "NOTE: the ADS-B Exchange feeder name doesn't match ADSB_FEEDER_NAME"
+        echo "($ADSB_FEEDER_NAME) yet - run:"
+        echo "  sudo ~/fix-adsb-feeder-name.sh \"$ADSB_FEEDER_NAME\""
+    fi
+else
+    echo "ADSB_FEEDER_NAME isn't set in config.sh, so the ADS-B Exchange feed is"
+    echo "using whatever name the installer auto-generated. If you run more than"
+    echo "one feeder, set ADSB_FEEDER_NAME and re-run, or fix it directly:"
+    echo "  sudo ~/fix-adsb-feeder-name.sh EE-YOURNAME"
+fi
+
 section "IC-705 hardware check"
 if [ ! -e "/dev/serial/by-id/$IC705_SERIAL_ID" ]; then
     echo "WARNING: /dev/serial/by-id/$IC705_SERIAL_ID not found."
@@ -244,6 +267,10 @@ install_wine_app "$DOWNLOADS/VARA FM setup (Run as Administrator).exe" "$WINEPRE
 
 section "Configuring VARA HF (soundcard + registration)"
 VARAHF_INI="$WINEPREFIX_HAM/drive_c/VARA/VARA.ini"
+if [ -f "$WINEPREFIX_HAM/drive_c/VARA/VARA.exe" ] && [ ! -f "$VARAHF_INI" ]; then
+    echo "First-run VARA HF to generate its config..."
+    WINEPREFIX="$WINEPREFIX_HAM" AUDIODEV="$AUDIO_DEVICE" timeout 8 wine "$WINEPREFIX_HAM/drive_c/VARA/VARA.exe" || true
+fi
 if [ -f "$VARAHF_INI" ] && [ -n "$VARA_REG_CODE" ]; then
     sed -i \
         -e "s/^Input Device Name=.*/Input Device Name=In: USB Audio CODEC - USB Audio/" \
@@ -276,6 +303,35 @@ fi
 # Note: neither VARA HF nor VARA FM actually key PTT themselves in this
 # version - see Start_Pat.sh/Start_Pat_FM.sh, which use rigctld directly
 # against the radio for PTT and frequency instead.
+
+section "Configuring VarAC (rig control, identity, backup-dialog nag)"
+# Same "config file doesn't exist until the app has run once" issue as VARA
+# HF/FM above - force a first run to generate VarAC.ini before editing it.
+if [ -f "$WINEPREFIX_HAM/drive_c/VarAC/VarAC.exe" ] && [ ! -f "$WINEPREFIX_HAM/drive_c/VarAC/VarAC.ini" ]; then
+    echo "First-run VarAC to generate its config..."
+    (cd "$WINEPREFIX_HAM/dosdevices/c:/VarAC" && WINARCH="win32" WINEPREFIX="$WINEPREFIX_HAM" AUDIODEV="$AUDIO_DEVICE" timeout 15 wine "$WINEPREFIX_HAM/drive_c/VarAC/VarAC.exe") || true
+fi
+VARAC_INI="$WINEPREFIX_HAM/drive_c/VarAC/VarAC.ini"
+if [ -f "$VARAC_INI" ]; then
+    sed -i \
+        -e "s/^RigPTTControlType=.*/RigPTTControlType=FLRIG/" \
+        -e "s/^RigFreqControlType=.*/RigFreqControlType=FLRIG/" \
+        -e "s/^Mycall=.*/Mycall=$CALLSIGN/" \
+        -e "s/^MyLocator=.*/MyLocator=$GRID/" \
+        -e "s/^AutomaticBackup=.*/AutomaticBackup=OFF/" \
+        "$VARAC_INI"
+    echo "VarAC configured (rig control -> flrig, callsign/grid, backup nag silenced)."
+    echo "FlrigHost/FlrigPort default to localhost:12345 in a fresh VarAC.ini,"
+    echo "matching Start_Flrig_Radio.sh - left alone unless already changed."
+else
+    echo "Skipped (VarAC.ini still missing - VarAC's first run may need a"
+    echo "display/longer timeout than this script gives it; launch it once"
+    echo "yourself, close it, then re-run this script)."
+fi
+# VarAC has no registration-code field of its own (unlike VARA HF/FM) - it's
+# free. It doesn't need an audio device set either: it drives VARA HF as its
+# modem engine (see [VARAHF_CONFIG] in VarAC.ini), so VARA HF's own
+# soundcard config above is what actually matters for audio.
 
 section "VarAC launcher"
 cat > "$HOME/Start_VarAC.sh" <<EOF
@@ -405,7 +461,9 @@ section "Radio profiles + active-radio picker"
 mkdir -p "$HOME/radio_profiles/audio" "$HOME/.local/bin"
 cp "$SCRIPT_DIR/bin/"*.sh "$HOME/.local/bin/"
 chmod +x "$HOME/.local/bin/select-radio.sh" "$HOME/.local/bin/ham-radio-name.sh" \
-    "$HOME/.local/bin/Start_Flrig_Radio.sh" "$HOME/.local/bin/sync-radio-audio.sh"
+    "$HOME/.local/bin/Start_Flrig_Radio.sh" "$HOME/.local/bin/sync-radio-audio.sh" \
+    "$HOME/.local/bin/ham-radio-freq.sh" "$HOME/.local/bin/ham-radio-mode.sh" \
+    "$HOME/.local/bin/ham-gps-grid.sh"
 if [ -d "$SCRIPT_DIR/radio_profiles" ]; then
     cp -n "$SCRIPT_DIR/radio_profiles/"*.conf "$HOME/radio_profiles/" 2>/dev/null || true
     cp -n "$SCRIPT_DIR/radio_profiles/audio/"*.sh "$HOME/radio_profiles/audio/" 2>/dev/null || true
@@ -493,8 +551,11 @@ if ! rigctld_responsive; then
 fi
 
 # Pat Winlink HF needs the radio in USB-D (PKTUSB), not whatever mode it was
-# last left in by another app.
-rigctl -m 2 -r localhost:4532 M PKTUSB 2400 > /dev/null 2>&1
+# last left in by another app. Timeout-wrapped like every other rigctl call
+# here - a wedged rigctld (seen once: still listening on 4532 but not
+# actually answering, needing a kill+restart to clear) would otherwise hang
+# this indefinitely with no way to recover short of killing the script.
+timeout 5 rigctl -m 2 -r localhost:4532 M PKTUSB 2400 > /dev/null 2>&1 || true
 
 if pgrep -f "VARAFM.exe" > /dev/null; then
     pkill -f "VARAFM.exe"
@@ -579,8 +640,10 @@ if ! rigctld_responsive; then
 fi
 
 # Pat Winlink FM needs the radio in actual FM mode, not USB-D -- FM digital
-# packet uses real FM modulation, unlike HF data modes.
-rigctl -m 2 -r localhost:4532 M FM 0 > /dev/null 2>&1
+# packet uses real FM modulation, unlike HF data modes. Timeout-wrapped for
+# the same reason as the HF version above - a wedged rigctld shouldn't hang
+# this indefinitely.
+timeout 5 rigctl -m 2 -r localhost:4532 M FM 0 > /dev/null 2>&1 || true
 
 if pgrep -f "VARA.exe" > /dev/null; then
     pkill -f "VARA.exe"
@@ -671,6 +734,42 @@ echo "In WSJT-X and JS8Call, set Settings -> Radio -> Rig: 'Hamlib NET rigctl',"
 echo "Network Server: 127.0.0.1:4532, PTT Method: CAT. GridTracker needs no"
 echo "changes - it already listens on UDP 2237 by default."
 
+section "Conky station-status monitor + 10-minute ID timer"
+# These were originally hand-built directly on a live machine and never
+# ported into this script - every fresh install skipped them silently,
+# which is exactly the gap that was found and fixed here. conky.conf and
+# id-timer.py are tracked in this repo (conky/) since their content isn't
+# generated from config.sh; only copied into place (not overwritten, so
+# any hand-tuning survives a re-run).
+mkdir -p "$HOME/.config/conky" "$HOME/.config/autostart" "$HOME/.local/bin"
+cp -n "$SCRIPT_DIR/conky/conky.conf" "$HOME/.config/conky/conky.conf"
+# The repo's copy uses the placeholder callsign N0CALL (same convention as
+# config.sh.example) so nobody's real callsign sits in version control -
+# swap in the real one now. A no-op on re-run once it's already been swapped.
+sed -i "s/N0CALL/$CALLSIGN/" "$HOME/.config/conky/conky.conf"
+cp -n "$SCRIPT_DIR/conky/id-timer.py" "$HOME/.local/bin/id-timer.py"
+chmod +x "$HOME/.local/bin/id-timer.py"
+
+cat > "$HOME/.config/autostart/conky.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Conky (Ham Radio Status)
+Exec=conky -c $HOME/.config/conky/conky.conf
+X-GNOME-Autostart-enabled=true
+Terminal=false
+EOF
+
+cat > "$HOME/.config/autostart/id-timer.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=ID Timer
+Exec=python3 $HOME/.local/bin/id-timer.py
+X-GNOME-Autostart-enabled=true
+Terminal=false
+EOF
+echo "Conky and the ID timer are installed and will autostart on next login"
+echo "(or start them now: conky -c ~/.config/conky/conky.conf &, python3 ~/.local/bin/id-timer.py &)."
+
 section "Desktop shortcuts"
 mkdir -p "$HOME/Desktop"
 
@@ -755,6 +854,25 @@ Type=Application
 StartupNotify=true
 Icon=mail-send-receive
 Terminal=false
+EOF
+fi
+
+if [ -f "$SCRIPT_DIR/ic705-channel-tools/ic705-channel-picker.py" ]; then
+    if [ ! -f "$SCRIPT_DIR/ic705-channel-tools/ic705_channels.json" ]; then
+        echo "Building the IC-705 channel index from the tracked CSVs..."
+        (cd "$SCRIPT_DIR/ic705-channel-tools" && python3 build_channel_index.py) || \
+            echo "WARNING: build_channel_index.py failed - see ic705-channel-tools/README.md."
+    fi
+cat > "$HOME/Desktop/IC-705 Channel Picker.desktop" <<EOF
+[Desktop Entry]
+Name=IC-705 Channel Picker
+Comment=Browse programmed memory channels by name/group and jump to one
+Exec=python3 "$SCRIPT_DIR/ic705-channel-tools/ic705-channel-picker.py"
+Type=Application
+StartupNotify=true
+Icon=radio
+Terminal=false
+Categories=HamRadio;
 EOF
 fi
 

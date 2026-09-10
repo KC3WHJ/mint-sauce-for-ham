@@ -7,6 +7,8 @@ ic705_channels.json exists alongside this script."""
 import glob
 import json
 import os
+import subprocess
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -43,18 +45,53 @@ def find_ic705_port() -> str:
     return matches[0]
 
 
-def select_memory(group: int, slot: int):
-    """Opens the serial port just long enough to switch the radio's active memory."""
+def stop_conflicting_processes() -> list[str]:
+    """rigctld/flrig also talk CI-V directly to the radio's one serial port -
+    two processes writing raw bytes to the same physical UART at once
+    corrupts both exchanges (confirmed 2026-09-10: with rigctld running,
+    select_memory()'s writes/reads got silently corrupted - no exception,
+    just no effect on the radio, since a timed-out/garbled reply isn't the
+    same as an explicit NG reply). Same conflict Start_VarAC.sh already
+    handles by stopping rigctld first; mirrored here for the same reason.
+    Returns the names of whatever was actually stopped, for a status message.
+    """
+    stopped = []
+    if subprocess.run(["pgrep", "-f", "^rigctld "],
+                       capture_output=True).returncode == 0:
+        subprocess.run(["pkill", "-f", "^rigctld "])
+        stopped.append("rigctld")
+    if subprocess.run(["pgrep", "-x", "flrig"],
+                       capture_output=True).returncode == 0:
+        subprocess.run(["pkill", "-x", "flrig"])
+        stopped.append("flrig")
+    if stopped:
+        time.sleep(1)
+    return stopped
+
+
+def select_memory(group: int, slot: int) -> list[str]:
+    """Opens the serial port just long enough to switch the radio's active
+    memory. Returns the names of any conflicting process that had to be
+    stopped first (see stop_conflicting_processes), so the caller can tell
+    the user - they aren't restarted automatically, since this tool has no
+    way to know which one (if any) the user wants back."""
+    stopped = stop_conflicting_processes()
     ser = Serial(find_ic705_port(), BAUD, timeout=1)
     try:
         for cmd, data in ((b"\x08\xA0", encode_bcd(group)), (b"\x08", encode_bcd(slot))):
             frame = b"\xfe\xfe" + TRANSCEIVER_ADDR + CONTROLLER_ADDR + cmd + data + b"\xfd"
             ser.write(frame)
             reply = ser.read_until(expected=b"\xfd")
-            if reply and reply[-2:-1] == b"\xfa":
-                raise RuntimeError("Radio rejected the command (NG reply)")
+            if not reply or reply[-2:-1] != b"\xfb":
+                # \xfb = OK, \xfa = NG - but treat anything other than an
+                # explicit OK as failure, not just an explicit NG. An empty/
+                # truncated reply (e.g. a timeout) is NOT success and must
+                # not be treated as one.
+                reason = "no reply (timed out)" if not reply else "rejected (NG) or garbled reply"
+                raise RuntimeError(f"Radio did not confirm the command - {reason}")
     finally:
         ser.close()
+    return stopped
 
 
 class ChannelPicker(tk.Tk):
@@ -140,10 +177,13 @@ class ChannelPicker(tk.Tk):
             self.status_var.set(f"CH{ch['channel_number']} ({ch['name']}) is manual-only — not programmed on the radio")
             return
         try:
-            select_memory(ch["group"], ch["slot"])
-            self.status_var.set(f"Switched radio to CH{ch['channel_number']} — {ch['name']} ({ch['rx_mhz']:.4f} MHz)")
+            stopped = select_memory(ch["group"], ch["slot"])
+            msg = f"Switched radio to CH{ch['channel_number']} — {ch['name']} ({ch['rx_mhz']:.4f} MHz)"
+            if stopped:
+                msg += f" (stopped {' and '.join(stopped)} first — restart it yourself if you need it back)"
+            self.status_var.set(msg)
         except SerialException:
-            self.status_var.set("Could not open the radio's serial port — is rigctld/flrig running?")
+            self.status_var.set("Could not open the radio's serial port — is it plugged in?")
         except RuntimeError as e:
             self.status_var.set(str(e))
 

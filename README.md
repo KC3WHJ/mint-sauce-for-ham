@@ -25,6 +25,12 @@ reception, and a Wine-based digital-modes stack for the Icom IC-705.
   **WSJT-X**, and **GridTracker** — all sharing whichever radio is currently
   selected (see [Multi-radio support](#multi-radio-support) below) via a
   single Hamlib `rigctld` instance talking directly to its serial port.
+- **A Conky station-status monitor** (top-right of the desktop) showing the
+  active radio's name/frequency/mode, whether JS8Call/Pat Winlink are
+  running, GPS grid square, and CPU temperature — plus a **10-minute
+  station-ID timer** positioned directly beneath it (Start/Cancel buttons,
+  beeps and flashes at each 10-minute mark, auto-repeats until cancelled).
+  Both autostart on login.
 
 ## Multi-radio support
 
@@ -95,6 +101,36 @@ in this repo for real, working examples. Fields:
   `ft891.sh` for the `amixer` pattern (check real control names with
   `amixer -c <card>` first; they don't always match what another config
   reference assumes).
+- **The ADS-B Exchange installer's auto-generated feeder/site name is not
+  reliably correct**, and if you run more than one feeder (e.g. a laptop and
+  a desktop station both feeding at once), each needs its own distinct
+  name — reusing one across two active feeders makes them indistinguishable
+  on the sync check/MLAT map. It's come up with a different wrong value on
+  every install so far (`EE-KPNE`, then `EE-DT-KPNE`). Set
+  `ADSB_FEEDER_NAME` in `config.sh` to your station's real name and the
+  setup script corrects it automatically via `~/fix-adsb-feeder-name.sh`
+  (usage: `sudo ~/fix-adsb-feeder-name.sh EE-YOURNAME`), printing a reminder
+  if it doesn't match yet.
+- **`rigctld` can wedge** — stay running and still listening on port 4532,
+  but stop actually answering any query (a plain `rigctl f` hangs
+  indefinitely instead of erroring). Seen once so far, cause not confirmed;
+  a suspect is `Start_Pat.sh`/`Start_Pat_FM.sh`'s own kill-and-restart logic
+  racing with Conky's independent 2-second `rigctl` polling
+  (`ham-radio-freq.sh`/`ham-radio-mode.sh`) right as a fresh `rigctld` comes
+  up. `kill`-ing and letting the launcher script restart it clears it
+  immediately, radio hardware is unaffected. Every direct `rigctl` call in
+  `Setup_Ham_Radio_Stack.sh`'s generated launchers is now `timeout`-wrapped
+  (one, the mode-set line, wasn't) specifically so a wedge like this hangs
+  the launcher for a bounded few seconds instead of forever.
+- **VARA HF's auto-config step silently no-ops on every fresh install.** It
+  edits `VARA.ini` to set the soundcard devices and registration code, but
+  that file only exists after VARA HF has been launched at least once —
+  and nothing in the script launched it first. VARA FM's equivalent section
+  already force-launches it once to generate the file before editing
+  (`timeout 8 wine ... || true`); VARA HF's was just missing the same
+  step. Fixed by adding it. If you're on an older install where this
+  already silently skipped, either re-run the script or open VARA HF once
+  yourself, close it, then re-run.
 
 ## IC-705 memory channel tools
 
@@ -178,6 +214,13 @@ already done before acting on it.
 - flrig is only used for VarAC's PTT/CAT path — WSJT-X, JS8Call, and Pat
   all use direct `rigctld` instead, since flrig was previously found to be
   "a recurring, hard-to-diagnose source of hangs and crashes" for those.
+- The script sets VarAC's rig control to flrig, and your callsign/grid,
+  automatically (`VarAC.ini`'s `RigPTTControlType`/`RigFreqControlType`,
+  `Mycall`, `MyLocator`) — same "force a first run to generate the config
+  file, then edit it" pattern as VARA HF/FM above. VarAC has no
+  registration code of its own (it's free) and no separate audio device
+  setting either — it drives VARA HF as its modem engine, so VARA HF's own
+  soundcard config is what actually matters for audio.
 
 ## Fresh-install verification
 
@@ -188,3 +231,28 @@ and GridTracker — came up and worked correctly following this script plus
 the one-time manual steps noted above (rebooting after the `dialout`
 group change; entering registration codes; the interactive installer
 wizards).
+
+A second fresh-install test (2026-09-09), on a second machine (a desktop
+station, separate from the original laptop this was first verified on —
+this project now runs on both), found that the 2026-09-05 claim didn't
+actually cover everything: the Conky monitor and ID timer had been
+hand-built directly on the laptop's dotfiles and were never added to this
+script, so they silently didn't appear on the fresh desktop install.
+Fixed by adding the "Conky station-status monitor + 10-minute ID timer"
+step above. Several more real bugs surfaced and were fixed the same
+session:
+- The ID timer's window position was first a coordinate hardcoded to the
+  laptop's screen resolution (`1600x900`), landing off-screen on the
+  desktop's different resolution; then, once made screen-relative, still
+  overlapped Conky because its height was a rough guess (280px) far under
+  Conky's real rendered height (377px). Now the timer queries Conky's
+  actual live window geometry (`wmctrl` + `xwininfo`) at launch and
+  positions itself flush beneath it, however tall it really renders.
+- `fix-adsb-feeder-name.sh` (see "Hard-won lessons" above) went through two
+  rounds: first it only matched one hardcoded wrong value (`EE-KPNE`) and a
+  second install got a different wrong value (`EE-DT-KPNE`); then it turned
+  out the *correct* value it was hardcoding a fix to (`EE-KPHL`) was
+  actually the laptop's identity, not a universal answer — the desktop
+  needs its own distinct name since both may feed at once. Now takes the
+  name as an argument, driven by `ADSB_FEEDER_NAME` in `config.sh` (one
+  value per machine, never committed).

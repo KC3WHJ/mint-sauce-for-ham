@@ -20,3 +20,11 @@ WINEPREFIX_HAM="$HOME/.wine32"
 # GPS (if a USB GPS is plugged in and gpsd auto-detects it) or no location.
 ADSB_LAT=""                    # e.g. 40.0637
 ADSB_LON=""                    # e.g. -74.9868
+
+# The official ADS-B Exchange installer auto-generates a feeder/site name
+# from your location that isn't reliably correct, and if you run more than
+# one feeder (e.g. a laptop and a desktop station), each one needs its own
+# unique name - reusing the same name across two active feeders makes them
+# indistinguishable on the sync check/MLAT map. Leave blank to just keep
+# whatever the installer picks. See "Hard-won lessons" in README.md.
+ADSB_FEEDER_NAME=""            # e.g. "EE-KPHL-DESKTOP" - must be unique per feeder

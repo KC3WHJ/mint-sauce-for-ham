@@ -3,3 +3,9 @@ config.sh
 *.log
 __pycache__/
 ic705-channel-tools/ic705_channels.json
+# Real repeater/channel data extracted from a proprietary/commercial guide -
+# not for the public repo. sections.json still references these by name;
+# supply your own to use these groups (see ic705-channel-tools/README.md).
+ic705-channel-tools/Fixed_Base_*.csv
+ic705-channel-tools/Local_Add-On_*.csv
+ic705-channel-tools/Extended_*.csv

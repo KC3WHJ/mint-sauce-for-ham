@@ -105,6 +105,18 @@ switch remotely. If a selection silently does nothing (or the radio briefly
 flashes a group number but the frequency doesn't change), check the radio is
 in MEMO mode first.
 
+**If `rigctld` or flrig is running, the picker stops it automatically before
+sending its command** - confirmed 2026-09-10 that leaving either running
+while the picker also opens the serial port directly corrupts both sides'
+CI-V traffic (two processes writing raw bytes to the same physical UART at
+once), and the picker's old error handling only caught an explicit NG reply
+- a corrupted/timed-out reply slipped through as a false "success" message
+with no actual effect on the radio. It does *not* restart whatever it
+stopped afterward (it has no way to know if you want Pat/WSJT-X/Conky's
+radio display back) - the status bar tells you what it stopped; restart it
+yourself (e.g. re-launch Pat Winlink, or just `rigctld -m 3085 -r
+/dev/serial/by-id/usb-Icom_Inc._IC-705_...-if00 -s 115200 -t 4532 &`).
+
 ## Known limitations (not fixable via CSV/CI-V, by design)
 
 - Channels with a cross-band RX/TX split larger than the duplex-offset
