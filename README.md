@@ -85,6 +85,14 @@ in this repo for real, working examples. Fields:
   through Select Radio once after every reboot before opening VarAC (or
   anything else that talks to the radio), regardless of what Conky
   already shows.
+- **IC-7300's rear `[KEY]` jack defaults to "Paddle," not "Straight."**
+  Confirmed 2026-09-10 after a full factory reset: plugging in a straight
+  key while this is set to Paddle makes the internal electronic keyer
+  interpret any contact closure as the dit paddle being held down, so even
+  a light tap sends a rapid burst of dits instead of one. Fix:
+  `MENU > KEYER > EDIT/SET > CW-KEY SET > Key Type` → change from Paddle
+  to Straight. Same menu also has side tone, dot/dash ratio, and paddle
+  polarity if those got reset too.
 - **Don't assert RTS/DTR while reading CAT.** If a radio's PTT line is
   wired to RTS (common for RTS-keyed rigs like the TX-500 MP), toggling RTS
   at the same moment you're trying to read a CAT reply dumps electrical
