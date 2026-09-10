@@ -72,6 +72,19 @@ in this repo for real, working examples. Fields:
 
 ### Hard-won lessons (so you don't have to relearn them)
 
+- **After a reboot, re-run Select Radio even if Conky already shows the
+  right radio.** Confirmed by the user 2026-09-10: skipping this and
+  opening VarAC directly after a reboot makes flrig throw an error, even
+  though `radio_profiles/active-radio.conf` (a plain symlink) survives the
+  reboot fine and Conky already reflects the correct radio from it.
+  `select-radio.sh` itself only recreates that same symlink — it doesn't
+  touch flrig, rigctld, or anything else — so simply re-selecting the
+  already-active radio shouldn't change any on-disk state, yet it reliably
+  avoids the error in practice. Root cause not identified; treat this as a
+  real, reproducible requirement, not a superstition — always click
+  through Select Radio once after every reboot before opening VarAC (or
+  anything else that talks to the radio), regardless of what Conky
+  already shows.
 - **Don't assert RTS/DTR while reading CAT.** If a radio's PTT line is
   wired to RTS (common for RTS-keyed rigs like the TX-500 MP), toggling RTS
   at the same moment you're trying to read a CAT reply dumps electrical
