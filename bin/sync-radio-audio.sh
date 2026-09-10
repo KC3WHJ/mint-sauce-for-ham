@@ -58,10 +58,16 @@ fi
 # (mic/speaker gain, disabling onboard AGC) beyond just picking the right
 # device name -- see radio_profiles/audio/ for these.
 if [ -n "$AUDIO_SCRIPT" ] && [ -x "$AUDIO_SCRIPT" ]; then
-    CARD=$(echo "$AUDIO_DEVICE" | sed -n 's/^hw:\([0-9]*\),.*/\1/p')
+    # AUDIO_DEVICE is "hw:<card>,0" -- <card> can be a raw number (hw:1,0)
+    # or a stable card ID string like hw:CODEC,0 (preferred where available,
+    # see AUDIO_DEVICE's own comment in each profile) - match either, not
+    # just digits (confirmed 2026-09-10: the digit-only version silently
+    # extracted nothing for the IC-7300's hw:CODEC,0, skipping AUDIO_SCRIPT
+    # entirely with no error other than this branch's own warning line).
+    CARD=$(echo "$AUDIO_DEVICE" | sed -n 's/^hw:\([^,]*\),.*/\1/p')
     if [ -n "$CARD" ]; then
         "$AUDIO_SCRIPT" "$CARD"
     else
-        echo "AUDIO_SCRIPT is set but couldn't parse a card number out of AUDIO_DEVICE=$AUDIO_DEVICE -- skipping."
+        echo "AUDIO_SCRIPT is set but couldn't parse a card id out of AUDIO_DEVICE=$AUDIO_DEVICE -- skipping."
     fi
 fi
