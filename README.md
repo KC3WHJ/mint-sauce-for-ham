@@ -93,6 +93,25 @@ in this repo for real, working examples. Fields:
   `MENU > KEYER > EDIT/SET > CW-KEY SET > Key Type` → change from Paddle
   to Straight. Same menu also has side tone, dot/dash ratio, and paddle
   polarity if those got reset too.
+- **IC-7300's "DATA MOD" and "DATA OFF MOD" are independent settings for
+  two different radio states, both under `MENU > SET > Connectors > MOD
+  Input`.** Confirmed 2026-09-11 after a factory reset: WSJT-X keyed the
+  radio fine (TX light on, correct USB-D mode on the radio's own display,
+  PC-side audio confirmed perfect - PulseAudio stream unmuted at 100%,
+  correctly routed) but ALC stayed completely flat - because **DATA MOD**
+  (the input source used whenever the DATA function is ON, i.e. digital
+  modes) was set to ACC instead of USB, so the radio was modulating from
+  an unconnected port while genuinely-present USB audio was ignored
+  entirely. Separately, **DATA OFF MOD** (the source used when DATA is
+  OFF, i.e. normal voice) was set to USB, not MIC - meaning even a
+  perfectly working microphone would've been ignored in plain voice mode.
+  Set both explicitly and leave them: `DATA MOD = USB` (digital modes),
+  `DATA OFF MOD = MIC` (voice). With both set correctly, switching between
+  voice and digital modes is just toggling the DATA function - which
+  WSJT-X/JS8Call/etc. already do automatically via CAT - no need to touch
+  MOD Input again. This is a distinct setting from the mic-connector
+  hardware fault covered elsewhere in this project's notes; check this
+  first since it's pure configuration, not a physical fault.
 - **Don't assert RTS/DTR while reading CAT.** If a radio's PTT line is
   wired to RTS (common for RTS-keyed rigs like the TX-500 MP), toggling RTS
   at the same moment you're trying to read a CAT reply dumps electrical
