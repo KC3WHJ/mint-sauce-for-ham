@@ -322,6 +322,21 @@ already done before acting on it.
   other "don't trust a possibly-stale saved value" spot in this project:
   `Start_Flrig_Radio.sh` now force-sets `xcvr_serial_port` to the active
   profile's `SERIAL_DEVICE` on every launch, not just `xcvr_name`.
+- **That same fix had its own bug**: FLTK's preferences format wraps long
+  values (like a stable `/dev/serial/by-id/...` path) across multiple
+  physical lines, with continuation lines prefixed `+`. The `sed` used to
+  force-set `xcvr_serial_port` only replaced the first line, leaving an
+  orphaned `+` continuation line behind - flrig then read the two lines
+  concatenated back together into one garbled, visibly-doubled device
+  path and failed with "cannot open serial port." Confirmed 2026-09-11:
+  intermittent because it only bit once flrig had previously saved the
+  prefs file in wrapped form itself (which it does for long values), so
+  it depended on whatever state flrig's last save had left behind - not
+  something a reboot alone would reset, since the prefs file persists on
+  disk. Fixed by replacing the `sed` with a small Python pass that removes
+  the key line *and* any immediately-following `+` continuation lines
+  before writing a single correct line back, instead of assuming the
+  value is always exactly one physical line.
 
 ## Fresh-install verification
 

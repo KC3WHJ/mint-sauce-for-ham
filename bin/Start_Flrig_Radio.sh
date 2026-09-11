@@ -46,7 +46,34 @@ fi
 # a possibly-stale saved value either.
 RIG_PREFS="$FLRIG_CONFIG_DIR/${FLRIG_NAME}.prefs"
 if [ -f "$RIG_PREFS" ] && grep -q "^xcvr_serial_port:" "$RIG_PREFS"; then
-    sed -i "s|^xcvr_serial_port:.*|xcvr_serial_port:${SERIAL_DEVICE}|" "$RIG_PREFS"
+    # A plain `sed -i 's/^xcvr_serial_port:.*/.../'` corrupted this: FLTK's
+    # own preferences format wraps long values (like this stable by-id
+    # path) across multiple physical lines, continuation lines prefixed
+    # with '+'. sed only replaced the first line and left the orphaned '+'
+    # continuation line behind, so flrig read the two concatenated back
+    # together into one garbled/duplicated path - confirmed 2026-09-11 via
+    # a real "cannot open serial port" error with a visibly doubled device
+    # name. Fixed by removing the key line AND any immediately-following
+    # '+' continuation lines, then writing a single correct line back.
+    RIG_PREFS="$RIG_PREFS" SERIAL_DEVICE="$SERIAL_DEVICE" python3 -c '
+import os
+path = os.environ["RIG_PREFS"]
+value = os.environ["SERIAL_DEVICE"]
+with open(path) as f:
+    lines = f.readlines()
+out, i = [], 0
+while i < len(lines):
+    if lines[i].startswith("xcvr_serial_port:"):
+        out.append(f"xcvr_serial_port:{value}\n")
+        i += 1
+        while i < len(lines) and lines[i].startswith("+"):
+            i += 1
+        continue
+    out.append(lines[i])
+    i += 1
+with open(path, "w") as f:
+    f.writelines(out)
+'
 else
     echo "NOTE: $RIG_PREFS doesn't exist yet or has no xcvr_serial_port line -"
     echo "flrig hasn't been run for this rig before. Launch it once, set the"
