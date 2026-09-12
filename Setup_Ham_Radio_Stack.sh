@@ -163,11 +163,23 @@ if [ -n "$GPS_BY_ID" ]; then
         echo "GPS refclock already configured for $GPS_TTY."
     fi
 
+    # After=/Wants= alone only guarantees chrony.service's own start job
+    # finishes first - for a Type=forking service that just means "the
+    # forking parent process exited," not "chrony has actually created
+    # the refclock socket file yet." Confirmed via a real reboot
+    # 2026-09-12: gpsd's ExecStart ran essentially simultaneously with
+    # chrony's own ActiveEnterTimestamp, a genuine sub-second race the
+    # ordering dependency alone doesn't close. ExecStartPre below waits
+    # (bounded, never fails gpsd's own startup) for the socket file to
+    # actually exist before gpsd's real ExecStart runs.
     sudo mkdir -p /etc/systemd/system/gpsd.service.d
-    sudo tee /etc/systemd/system/gpsd.service.d/after-chrony.conf > /dev/null <<'EOF'
+    sudo tee /etc/systemd/system/gpsd.service.d/after-chrony.conf > /dev/null <<EOF
 [Unit]
 After=chrony.service
 Wants=chrony.service
+
+[Service]
+ExecStartPre=/bin/sh -c 'for i in \$(seq 1 20); do [ -S /run/chrony.clk.${GPS_TTY}.sock ] && exit 0; sleep 0.5; done; exit 0'
 EOF
     sudo systemctl daemon-reload
     sudo systemctl enable --now chrony
@@ -974,11 +986,20 @@ sed -i "s/N0CALL/$CALLSIGN/" "$HOME/.config/conky/conky.conf"
 cp -n "$SCRIPT_DIR/conky/id-timer.py" "$HOME/.local/bin/id-timer.py"
 chmod +x "$HOME/.local/bin/id-timer.py"
 
+# Conky can crash at autostart on some boots - confirmed 2026-09-12 via a
+# core dump: it queries X11 window properties (XGetWindowProperty) while
+# finding the desktop window to draw on, and if that races against the
+# desktop/window manager not being fully ready yet at very early login,
+# the X server can return a protocol error (e.g. BadWindow) that aborts
+# the whole process - not a config problem, and not reliably reproducible
+# (many prior boots this same session came up fine). Retry once after a
+# short delay rather than silently staying gone for the rest of the
+# session if it loses that race.
 cat > "$HOME/.config/autostart/conky.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Conky (Ham Radio Status)
-Exec=conky -c $HOME/.config/conky/conky.conf
+Exec=bash -c 'conky -c $HOME/.config/conky/conky.conf || (sleep 5 && conky -c $HOME/.config/conky/conky.conf)'
 X-GNOME-Autostart-enabled=true
 Terminal=false
 EOF

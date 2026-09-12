@@ -215,9 +215,9 @@ and `g90.conf` in this repo for real, working examples. Fields:
   step. Fixed by adding it. If you're on an older install where this
   already silently skipped, either re-run the script or open VARA HF once
   yourself, close it, then re-run.
-- **gpsd + chrony integration has three separate, non-obvious gotchas** —
+- **gpsd + chrony integration has four separate, non-obvious gotchas** —
   confirmed 2026-09-11/12 setting this up for real. The setup script
-  handles all three, but if it's ever debugged again:
+  handles all four, but if it's ever debugged again:
   1. **gpsd's SHM interface (the obvious first choice) doesn't work here.**
      gpsd exposes 12 SHM segments; units 0/1 are permanently root-only
      (0600) by design (legacy privileged-ntpd compatibility), and units
@@ -251,10 +251,37 @@ and `g90.conf` in this repo for real, working examples. Fields:
      chrony socket. A device present at gpsd's own daemon startup appears
      to go through different internal handling than one added later via
      `gpsdctl` — a real boot (chrony up first per the drop-in, then gpsd's
-     normal udev coldplug pass re-discovers the already-connected GPS) is
-     what actually exercises the working code path. If `chronyc sources -v`
-     ever shows `GPS` stuck at `Reach 0` after a config change, reboot
-     before assuming the config itself is wrong.
+     normal udev coldplug pass re-discovers the already-connected GPS)
+     exercises the right code path for *this* part, but wasn't the whole
+     story — see the next point.
+  4. **Even with correct `After=`/`Wants=` ordering and a genuine reboot,
+     there's still a real sub-second race** — confirmed 2026-09-12: on a
+     clean boot, `gpsd`'s `ExecStart` ran essentially simultaneously with
+     `chrony.service`'s own `ActiveEnterTimestamp`, not clearly after it.
+     `After=` on a `Type=forking` service (chrony's type here) only
+     guarantees "the forking parent process exited," not "chrony has
+     finished creating the refclock SOCK file" — those aren't the same
+     moment, and gpsd can win that race. Fixed with an `ExecStartPre` on
+     gpsd's drop-in that actively waits (bounded to 10s, never fails
+     gpsd's own startup if it times out — this is a nice-to-have, not
+     something that should be able to block GPS/ADS-B functionality) for
+     `/run/chrony.clk.<tty>.sock` to actually exist before gpsd's real
+     `ExecStart` runs. If `chronyc sources -v` ever shows `GPS` stuck at
+     `Reach 0` again after all of the above, this exact race is the first
+     thing to suspect, not the config.
+- **Conky can crash at autostart on some boots** — confirmed 2026-09-12
+  via a core dump (`coredumpctl gdb conky`, `bt`): it calls
+  `XGetWindowProperty` while walking the window hierarchy to find the
+  desktop window to draw on, and if that races against the desktop/window
+  manager not being fully ready yet at very early login, the X server can
+  return a protocol error that aborts the whole process. Not a config
+  problem (the exact same config file runs perfectly seconds later by
+  hand) and not reliably reproducible — plenty of earlier boots this same
+  session came up fine. The autostart entry now retries once after a
+  5-second delay if the first attempt exits
+  (`conky -c ... || (sleep 5 && conky -c ...)`) rather than silently
+  staying gone for the rest of the session on the boots where it loses
+  this race.
 
 ## Memory channel tools
 
