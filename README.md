@@ -215,10 +215,10 @@ and `g90.conf` in this repo for real, working examples. Fields:
   step. Fixed by adding it. If you're on an older install where this
   already silently skipped, either re-run the script or open VARA HF once
   yourself, close it, then re-run.
-- **gpsd + chrony integration has five separate, non-obvious gotchas** —
+- **gpsd + chrony integration has six separate, non-obvious gotchas** —
   confirmed 2026-09-11/12 setting this up for real, across several rounds
   of "fixed it" that turned out not to be. The setup script handles all
-  five, but if it's ever debugged again:
+  six, but if it's ever debugged again:
   1. **gpsd's SHM interface (the obvious first choice) doesn't work here.**
      gpsd exposes 12 SHM segments; units 0/1 are permanently root-only
      (0600) by design (legacy privileged-ntpd compatibility), and units
@@ -281,6 +281,32 @@ and `g90.conf` in this repo for real, working examples. Fields:
      gpsd's own startup if it times out — this is a nice-to-have, not
      something that should be able to block GPS/ADS-B functionality) for
      the socket to actually exist before gpsd's real `ExecStart` runs.
+  6. **Even with the socket correctly named, existing, and writable by
+     plain Unix permissions, gpsd's writes to it were still silently
+     failing — AppArmor, not DAC permissions, was the actual final
+     blocker.** Ubuntu ships an enforcing AppArmor profile for gpsd
+     (`/etc/apparmor.d/usr.sbin.gpsd`) that only allows the legacy plain
+     `chrony.tty*.sock` naming; it has no rule at all for gpsd 3.25+'s
+     `chrony.clk.<name>.sock` convention (gotcha 2) or by-id basenames
+     (gotcha 3), so every write was denied before it ever reached a DAC
+     check. The symptom was identical either way (`chrony_send(8)
+     Transport endpoint is not connected`, errno 107, from gpsd's own
+     debug log) — the only way to tell AppArmor apart from a permissions
+     problem was `strace -f -e trace=connect` on gpsd, which showed the
+     real syscall-level result: `connect(..., "/run/chrony.clk....sock",
+     ...) = -1 EACCES`, and separately, `journalctl -k | grep
+     apparmor.*gpsd` showing `apparmor="ALLOWED" operation="sendmsg"
+     class="file" ... requested_mask="w"` entries once the profile was
+     put into complain mode (`aa-complain`) to confirm AppArmor — not a
+     socket file permission — was the thing standing in the way. Fixed
+     with a local override (`/etc/apparmor.d/local/usr.sbin.gpsd`, the
+     package's own designated site-override include, so it survives a
+     gpsd package upgrade) adding `/{,var/}run/chrony.clk.*.sock rw,`,
+     reloaded via `apparmor_parser -r /etc/apparmor.d/usr.sbin.gpsd`; the
+     setup script does this automatically. If `chronyc sources -v` still
+     shows `GPS` stuck at `Reach 0` after all five other gotchas are
+     ruled out, check `journalctl -k | grep -i apparmor | grep -i gpsd`
+     before assuming the socket/ordering logic is wrong again.
 - **Conky can crash at autostart on some boots** — confirmed 2026-09-12
   via a core dump (`coredumpctl gdb conky`, `bt`): it calls
   `XGetWindowProperty` while walking the window hierarchy to find the

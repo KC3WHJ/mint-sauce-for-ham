@@ -187,6 +187,32 @@ Wants=chrony.service
 [Service]
 ExecStartPre=/bin/sh -c 'for i in \$(seq 1 20); do [ -S /run/chrony.clk.${GPS_BY_ID}.sock ] && exit 0; sleep 0.5; done; exit 0'
 EOF
+
+    # Even with the socket existing and correctly named, gpsd's own writes
+    # to it were still silently failing - not a DAC permission problem
+    # (confirmed: works fine at the socket's default root:root 0755), but
+    # Ubuntu/Debian's shipped gpsd AppArmor profile, which only allows the
+    # legacy plain chrony.tty*.sock naming and has no rule at all for
+    # gpsd 3.25+'s chrony.clk.<name>.sock convention. Confirmed via
+    # `journalctl -k | grep apparmor` showing DENIED entries for this exact
+    # socket path once the right log was checked. Covered by a local
+    # override so it survives gpsd package upgrades.
+    if [ -f /etc/apparmor.d/usr.sbin.gpsd ]; then
+        APPARMOR_RULE='/{,var/}run/chrony.clk.*.sock rw,'
+        APPARMOR_LOCAL=/etc/apparmor.d/local/usr.sbin.gpsd
+        sudo touch "$APPARMOR_LOCAL"
+        if ! grep -qF "$APPARMOR_RULE" "$APPARMOR_LOCAL" 2>/dev/null; then
+            {
+                echo ""
+                echo "# Allow gpsd's modern chrony SOCK refclock naming (.clk. infix,"
+                echo "# by-id device basenames) - added by Setup_Ham_Radio_Stack.sh"
+                echo "$APPARMOR_RULE"
+            } | sudo tee -a "$APPARMOR_LOCAL" > /dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.gpsd
+            echo "Added AppArmor override for gpsd's chrony SOCK refclock."
+        fi
+    fi
+
     sudo systemctl daemon-reload
     sudo systemctl enable --now chrony
     sudo systemctl restart gpsd
