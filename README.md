@@ -224,11 +224,15 @@ and `g90.conf` in this repo for real, working examples. Fields:
      (0600) by design (legacy privileged-ntpd compatibility), and units
      2/3 are the unprivileged-accessible equivalent — but gpsd only
      populates *one* pair, whichever it has permission for based on what
-     user *gpsd itself* runs as. This gpsd runs as root (systemd default,
-     needed for raw device access), so it only ever populates 0/1 — never
-     2/3 — meaning chronyd (which drops root privilege, `+PRIVDROP`) can
-     never read either pair. `ipcs -m` showing units 0/1 as `600` and 2+
-     as `666` is the tell; `ntpshmmon` returning nothing for *any* unit
+     user *gpsd itself* runs as at that moment. gpsd briefly runs as root
+     at startup (needed to open the raw device) and then drops privilege
+     to an unprivileged `gpsd` system user (confirmed via `ps -o
+     user,group -C gpsd` showing `gpsd dialout`, not root) — but the SHM
+     segments get populated at whichever point in that sequence gpsd's
+     NTP linkage code actually runs, which in practice was still only
+     0/1, never 2/3, meaning chronyd (which also drops root, `+PRIVDROP`)
+     can never read either pair. `ipcs -m` showing units 0/1 as `600` and
+     2+ as `666` is the tell; `ntpshmmon` returning nothing for *any* unit
      (not just a permission error) is what confirms gpsd isn't writing to
      2/3 at all, not just that they're unreadable.
   2. **chrony's own FAQ recommends its SOCK interface over SHM anyway**
@@ -240,20 +244,33 @@ and `g90.conf` in this repo for real, working examples. Fields:
      infix). Using the plain name with an NMEA-only GPS silently does
      nothing; no error on either side, the refclock just never shows
      reachability.
-  3. **`<name>` in that socket path is the *by-id device path's own
-     basename* — not the raw tty name it resolves to (e.g. `ttyACM0`),
-     which is what this project assumed at first and spent an entire
-     extra reboot cycle silently failing against.** Confirmed by running
-     gpsd manually in the foreground with `-D 5` (verbose debug) and
-     reading its own log line: `chrony socket
-     /run/chrony.clk.<by-id-basename>.sock doesn't exist`. Makes sense in
-     hindsight — gpsd's USBAUTO/udev integration adds devices by their
-     by-id path specifically *because* that's the stable identifier, so
-     that's the string its own socket-naming logic uses. If
-     `chronyc sources -v` shows `GPS` stuck at `Reach 0` with everything
-     else seemingly right, don't trust an assumed socket filename — get
-     gpsd's own debug log to confirm the exact name it's actually looking
-     for, the same way this was actually root-caused.
+  3. **`<name>` in that socket path is whatever literal device path string
+     gpsd itself was told to open the device with — gpsd doesn't
+     canonicalize or resolve it, it just uses that exact string.** This
+     sounds obvious in hindsight but cost an entire extra reboot cycle: a
+     by-id path was tried first (`chrony.clk.usb-u-blox_...-if00.sock`,
+     reasoning "that's the stable identifier, surely that's what gpsd's
+     own udev integration uses") and it genuinely worked — but only
+     because *manual* debug invocations (`gpsd -D 5 /dev/serial/by-id/...`)
+     were themselves seeding gpsd with that exact by-id path as an
+     argument, which only proved gpsd echoes back whatever you hand it.
+     gpsd's real, automatic attachment path is its own shipped udev rule
+     (`/usr/lib/udev/rules.d/60-gpsd.rules`), which feeds a systemd
+     template unit, `gpsdctl@%k.service` — `%k` is the **kernel** device
+     name, and that unit's `ExecStart` is literally
+     `gpsdctl add /dev/%I`. That is always the raw tty name (e.g.
+     `ttyACM0`), confirmed by reading the rule and the unit directly —
+     never a by-id path. So the socket name that actually needs
+     configuring is the tty name the by-id symlink currently resolves to
+     (`basename $(readlink -f /dev/serial/by-id/<name>)`), not the by-id
+     name itself. If `chronyc sources -v` shows `GPS` stuck at `Reach 0`
+     with everything else seemingly right, don't trust an assumed socket
+     filename *or* an assumed naming convention — get gpsd's own debug
+     log (`gpsd -N -n -b -D 5 <device>`) to confirm the exact name it's
+     actually looking for, with the device path it would **actually** be
+     given automatically (check `gpspipe -w -n3` first to see which path
+     gpsd currently has the device open under), the same way this was
+     actually root-caused.
   4. **gpsd must start *after* chronyd**, the reverse of normal boot order
      — SOCK requires gpsd to connect to a socket chronyd creates, so
      chronyd has to exist first. A systemd drop-in
@@ -287,8 +304,8 @@ and `g90.conf` in this repo for real, working examples. Fields:
      blocker.** Ubuntu ships an enforcing AppArmor profile for gpsd
      (`/etc/apparmor.d/usr.sbin.gpsd`) that only allows the legacy plain
      `chrony.tty*.sock` naming; it has no rule at all for gpsd 3.25+'s
-     `chrony.clk.<name>.sock` convention (gotcha 2) or by-id basenames
-     (gotcha 3), so every write was denied before it ever reached a DAC
+     `chrony.clk.<name>.sock` convention (gotcha 2), regardless of what
+     `<name>` is, so every write was denied before it ever reached a DAC
      check. The symptom was identical either way (`chrony_send(8)
      Transport endpoint is not connected`, errno 107, from gpsd's own
      debug log) — the only way to tell AppArmor apart from a permissions

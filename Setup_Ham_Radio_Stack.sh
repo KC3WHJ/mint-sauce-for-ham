@@ -131,42 +131,54 @@ section "Configuring chrony to use the GPS for time sync"
 # real value of GPS timing here is accurate time with ZERO internet
 # dependency (useful for this station's off-grid/emergency-comms angle,
 # e.g. AmRRON). gpsd's SHM interface looks like the obvious choice but its
-# SHM units 0/1 are permanently root-only by design, and gpsd here runs as
-# root so it never populates the unprivileged-accessible units 2/3 either
-# - chronyd (which drops root privilege) can never read either pair.
-# chrony's own FAQ recommends its newer SOCK interface instead, which
-# sidesteps this entirely - but it needs the exact NMEA-only ("clock", not
-# PPS - this is a plain USB GPS puck with no PPS output) socket naming
-# convention gpsd 3.25+ introduced (.clk. infix), and gpsd must start
-# AFTER chronyd creates the socket, the reverse of normal boot order.
-# All three of these were found and fixed live on a real machine
-# 2026-09-11 - see the "Hard-won lessons" section of README.md for the
-# full diagnostic trail if this needs revisiting.
+# SHM units 0/1 are permanently root-only by design, and gpsd's privilege
+# drop at startup (it briefly runs as root to open the device, then drops
+# to an unprivileged "gpsd" user) means it never populates the
+# unprivileged-accessible units 2/3 either - chronyd (which also drops
+# root) can never read either pair. chrony's own FAQ recommends its newer
+# SOCK interface instead, which sidesteps this entirely - but it needs the
+# exact NMEA-only ("clock", not PPS - this is a plain USB GPS puck with no
+# PPS output) socket naming convention gpsd 3.25+ introduced (.clk.
+# infix), named after the literal device path string gpsd's own udev
+# integration passes it (the raw tty name, e.g. ttyACM0 - NOT a by-id
+# path, confirmed by reading gpsd's shipped udev rule + systemd unit
+# directly); gpsd must start AFTER chronyd creates the socket, the reverse
+# of normal boot order; and Ubuntu's shipped gpsd AppArmor profile has no
+# rule at all for this modern socket naming, silently blocking every write
+# regardless of correct file permissions. All of these were found and
+# fixed live on a real machine 2026-09-11/12 - see the "Hard-won lessons"
+# section of README.md for the full diagnostic trail if this needs
+# revisiting.
 sudo systemctl disable --now systemd-timesyncd 2>/dev/null || true
 
 GPS_BY_ID=$(ls /dev/serial/by-id/ 2>/dev/null | grep -i gps | head -1)
 if [ -n "$GPS_BY_ID" ]; then
-    # The socket's name is the by-id path's own basename, NOT the raw tty
-    # name (e.g. ttyACM0) it happens to resolve to - confirmed straight
-    # from gpsd's own `-D 5` debug output ("chrony socket
-    # /run/chrony.clk.<by-id-name>.sock doesn't exist"). This matters
-    # because gpsd's USBAUTO/udev integration adds devices by their by-id
-    # path (that's the whole point of using it - stability across
-    # reboots/re-enumeration), so that's the string gpsd's own
-    # socket-naming logic actually uses, not the tty basename an earlier
-    # version of this script incorrectly assumed.
-    REFCLOCK_LINE="refclock SOCK /run/chrony.clk.${GPS_BY_ID}.sock refid GPS precision 1e-1 offset 0.9999"
-    if ! grep -q "^refclock SOCK .*${GPS_BY_ID}" /etc/chrony/chrony.conf 2>/dev/null; then
+    # The socket's name is whatever literal device path string gpsd was
+    # told to open the device with - confirmed via gpsd's own `-D 5` debug
+    # output. A by-id path was tried first (reasoning: it's the stable
+    # identifier, surely that's what gpsd's own udev integration uses) and
+    # genuinely worked in manual testing - but manual testing was
+    # seeding gpsd with that exact by-id path as an argument, which begs
+    # the question. gpsd's REAL automatic attachment path is the
+    # gpsd-shipped udev rule (/usr/lib/udev/rules.d/60-gpsd.rules) feeding
+    # a systemd template unit, gpsdctl@%k.service - %k is the KERNEL
+    # device name, and its ExecStart is literally
+    # `gpsdctl add /dev/%I`. That is always the raw tty name (e.g.
+    # ttyACM0), never a by-id path, confirmed 2026-09-12 by reading that
+    # unit directly. The tty name is what this needs to match.
+    GPS_TTY=$(basename "$(readlink -f "/dev/serial/by-id/$GPS_BY_ID")")
+    REFCLOCK_LINE="refclock SOCK /run/chrony.clk.${GPS_TTY}.sock refid GPS precision 1e-1 offset 0.9999"
+    if ! grep -q "^refclock SOCK .*${GPS_TTY}" /etc/chrony/chrony.conf 2>/dev/null; then
         # Remove any older refclock line (e.g. from a previous run against
         # a different GPS, or an older version of this script's incorrect
-        # tty-based naming) before adding the current correct one.
+        # by-id-based naming) before adding the current correct one.
         sudo sed -i '/^refclock SOCK .*\.clk\./d' /etc/chrony/chrony.conf
         echo "" | sudo tee -a /etc/chrony/chrony.conf > /dev/null
         echo "# GPS time via gpsd's SOCK interface - added by Setup_Ham_Radio_Stack.sh" | sudo tee -a /etc/chrony/chrony.conf > /dev/null
         echo "$REFCLOCK_LINE" | sudo tee -a /etc/chrony/chrony.conf > /dev/null
-        echo "Added GPS refclock to chrony.conf."
+        echo "Added GPS refclock ($GPS_TTY) to chrony.conf."
     else
-        echo "GPS refclock already configured."
+        echo "GPS refclock already configured for $GPS_TTY."
     fi
 
     # After=/Wants= alone only guarantees chrony.service's own start job
@@ -185,7 +197,7 @@ After=chrony.service
 Wants=chrony.service
 
 [Service]
-ExecStartPre=/bin/sh -c 'for i in \$(seq 1 20); do [ -S /run/chrony.clk.${GPS_BY_ID}.sock ] && exit 0; sleep 0.5; done; exit 0'
+ExecStartPre=/bin/sh -c 'for i in \$(seq 1 20); do [ -S /run/chrony.clk.${GPS_TTY}.sock ] && exit 0; sleep 0.5; done; exit 0'
 EOF
 
     # Even with the socket existing and correctly named, gpsd's own writes
@@ -204,8 +216,8 @@ EOF
         if ! grep -qF "$APPARMOR_RULE" "$APPARMOR_LOCAL" 2>/dev/null; then
             {
                 echo ""
-                echo "# Allow gpsd's modern chrony SOCK refclock naming (.clk. infix,"
-                echo "# by-id device basenames) - added by Setup_Ham_Radio_Stack.sh"
+                echo "# Allow gpsd's modern chrony SOCK refclock naming (the .clk."
+                echo "# infix gpsd 3.25+ uses) - added by Setup_Ham_Radio_Stack.sh"
                 echo "$APPARMOR_RULE"
             } | sudo tee -a "$APPARMOR_LOCAL" > /dev/null
             sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.gpsd
