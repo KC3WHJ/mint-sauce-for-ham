@@ -130,55 +130,57 @@ section "Configuring chrony to use the GPS for time sync"
 # FT8 only needs ~0.5s accuracy, already met by plain internet NTP - the
 # real value of GPS timing here is accurate time with ZERO internet
 # dependency (useful for this station's off-grid/emergency-comms angle,
-# e.g. AmRRON). gpsd's SHM interface looks like the obvious choice but its
-# SHM units 0/1 are permanently root-only by design, and gpsd's privilege
-# drop at startup (it briefly runs as root to open the device, then drops
-# to an unprivileged "gpsd" user) means it never populates the
-# unprivileged-accessible units 2/3 either - chronyd (which also drops
-# root) can never read either pair. chrony's own FAQ recommends its newer
-# SOCK interface instead, which sidesteps this entirely - but it needs the
-# exact NMEA-only ("clock", not PPS - this is a plain USB GPS puck with no
-# PPS output) socket naming convention gpsd 3.25+ introduced (.clk.
-# infix), named after the literal device path string gpsd's own udev
-# integration passes it (the raw tty name, e.g. ttyACM0 - NOT a by-id
-# path, confirmed by reading gpsd's shipped udev rule + systemd unit
-# directly); gpsd must start AFTER chronyd creates the socket, the reverse
-# of normal boot order; and Ubuntu's shipped gpsd AppArmor profile has no
-# rule at all for this modern socket naming, silently blocking every write
-# regardless of correct file permissions. All of these were found and
-# fixed live on a real machine 2026-09-11/12 - see the "Hard-won lessons"
-# section of README.md for the full diagnostic trail if this needs
-# revisiting.
+# e.g. AmRRON). Getting this working end to end took several real,
+# non-obvious fixes, found live on a real machine 2026-09-11/12 - see the
+# "Hard-won lessons" section of README.md for the full diagnostic trail if
+# this needs revisiting. Short version: gpsd's SHM interface is a dead
+# end (permanently root-only SHM units chronyd can never read); chrony's
+# newer SOCK interface works but needs gpsd 3.25+'s exact ".clk." NMEA
+# naming convention, named after whatever literal device path string gpsd
+# opens the device with; gpsd must start after chronyd creates that
+# socket; Ubuntu's shipped gpsd AppArmor profile has no rule at all for
+# this modern socket naming and silently blocks every write regardless of
+# correct file permissions; and - the one that cost the most time -
+# gpsd only reliably sets up this chrony link for a device it opens
+# directly at its OWN startup. A device attached later via udev hotplug
+# (gpsd's normal default behavior, via USBAUTO + gpsdctl) never gets
+# linked to chrony, no matter how correctly every other piece above is
+# configured. So this configures the GPS statically instead of relying
+# on hotplug.
 sudo systemctl disable --now systemd-timesyncd 2>/dev/null || true
 
 GPS_BY_ID=$(ls /dev/serial/by-id/ 2>/dev/null | grep -i gps | head -1)
 if [ -n "$GPS_BY_ID" ]; then
-    # The socket's name is whatever literal device path string gpsd was
-    # told to open the device with - confirmed via gpsd's own `-D 5` debug
-    # output. A by-id path was tried first (reasoning: it's the stable
-    # identifier, surely that's what gpsd's own udev integration uses) and
-    # genuinely worked in manual testing - but manual testing was
-    # seeding gpsd with that exact by-id path as an argument, which begs
-    # the question. gpsd's REAL automatic attachment path is the
-    # gpsd-shipped udev rule (/usr/lib/udev/rules.d/60-gpsd.rules) feeding
-    # a systemd template unit, gpsdctl@%k.service - %k is the KERNEL
-    # device name, and its ExecStart is literally
-    # `gpsdctl add /dev/%I`. That is always the raw tty name (e.g.
-    # ttyACM0), never a by-id path, confirmed 2026-09-12 by reading that
-    # unit directly. The tty name is what this needs to match.
-    GPS_TTY=$(basename "$(readlink -f "/dev/serial/by-id/$GPS_BY_ID")")
-    REFCLOCK_LINE="refclock SOCK /run/chrony.clk.${GPS_TTY}.sock refid GPS precision 1e-1 offset 0.9999"
-    if ! grep -q "^refclock SOCK .*${GPS_TTY}" /etc/chrony/chrony.conf 2>/dev/null; then
-        # Remove any older refclock line (e.g. from a previous run against
-        # a different GPS, or an older version of this script's incorrect
-        # by-id-based naming) before adding the current correct one.
+    GPS_PATH="/dev/serial/by-id/${GPS_BY_ID}"
+
+    if ! grep -q "^DEVICES=\"${GPS_PATH}\"" /etc/default/gpsd 2>/dev/null; then
+        sudo sed -i "s|^DEVICES=.*|DEVICES=\"${GPS_PATH}\"|" /etc/default/gpsd
+        echo "Configured gpsd to open $GPS_PATH directly at its own startup."
+    fi
+
+    # The chrony socket's name is whatever literal device path string
+    # gpsd was told to open the device with - since DEVICES above is the
+    # stable by-id path, that's what this needs to match too. No "offset"
+    # parameter: that's a correction for plain serial NMEA refclocks with
+    # a known one-cycle lag, which doesn't apply to gpsd's SOCK feed (gpsd
+    # already timestamps each fix itself) - adding it anyway (an earlier
+    # version of this script did, copied from a generic NMEA-refclock
+    # example) introduced a bogus ~1 second offset, confirmed via
+    # `chronyc sourcestats` showing a rock-solid -926ms bias with ~1ms
+    # jitter disappear entirely once removed.
+    REFCLOCK_LINE="refclock SOCK /run/chrony.clk.${GPS_BY_ID}.sock refid GPS precision 1e-1"
+    if ! grep -q "^refclock SOCK .*${GPS_BY_ID}" /etc/chrony/chrony.conf 2>/dev/null; then
+        # Remove any older refclock line (from a previous run, a
+        # different GPS, or an earlier version of this script that used a
+        # different naming scheme or the incorrect offset parameter above)
+        # before adding the current correct one.
         sudo sed -i '/^refclock SOCK .*\.clk\./d' /etc/chrony/chrony.conf
         echo "" | sudo tee -a /etc/chrony/chrony.conf > /dev/null
         echo "# GPS time via gpsd's SOCK interface - added by Setup_Ham_Radio_Stack.sh" | sudo tee -a /etc/chrony/chrony.conf > /dev/null
         echo "$REFCLOCK_LINE" | sudo tee -a /etc/chrony/chrony.conf > /dev/null
-        echo "Added GPS refclock ($GPS_TTY) to chrony.conf."
+        echo "Added GPS refclock to chrony.conf."
     else
-        echo "GPS refclock already configured for $GPS_TTY."
+        echo "GPS refclock already configured."
     fi
 
     # After=/Wants= alone only guarantees chrony.service's own start job
@@ -189,7 +191,8 @@ if [ -n "$GPS_BY_ID" ]; then
     # chrony's own ActiveEnterTimestamp, a genuine sub-second race the
     # ordering dependency alone doesn't close. ExecStartPre below waits
     # (bounded, never fails gpsd's own startup) for the socket file to
-    # actually exist before gpsd's real ExecStart runs.
+    # actually exist before gpsd's real ExecStart runs and opens the
+    # (now statically-configured) device.
     sudo mkdir -p /etc/systemd/system/gpsd.service.d
     sudo tee /etc/systemd/system/gpsd.service.d/after-chrony.conf > /dev/null <<EOF
 [Unit]
@@ -197,40 +200,16 @@ After=chrony.service
 Wants=chrony.service
 
 [Service]
-ExecStartPre=/bin/sh -c 'for i in \$(seq 1 20); do [ -S /run/chrony.clk.${GPS_TTY}.sock ] && exit 0; sleep 0.5; done; exit 0'
+ExecStartPre=/bin/sh -c 'for i in \$(seq 1 20); do [ -S /run/chrony.clk.${GPS_BY_ID}.sock ] && exit 0; sleep 0.5; done; exit 0'
 EOF
 
-    # gpsd.service itself starting after chrony isn't enough: the actual
-    # device-attach command comes from a SEPARATE systemd unit,
-    # gpsdctl@<tty>.service (udev-triggered directly off the device
-    # appearing, via gpsd's own shipped udev rule - see the by-id/tty
-    # comment above). Confirmed via `journalctl -b -u gpsdctl@ttyACM0` on
-    # a real reboot 2026-09-12: it ran and successfully told gpsd to open
-    # the device a full 14+ seconds BEFORE chrony.service even started,
-    # well before gpsd.service's own chrony-ordered startup. gpsd's
-    # internal per-device chrony-socket connection attempt happens at
-    # that device-open moment, independent of whether the main gpsd
-    # daemon is separately ordered after chrony - so this unit needs the
-    # exact same ordering + wait treatment on its own.
-    sudo mkdir -p /etc/systemd/system/gpsdctl@.service.d
-    sudo tee /etc/systemd/system/gpsdctl@.service.d/after-chrony.conf > /dev/null <<EOF
-[Unit]
-After=chrony.service
-Wants=chrony.service
-
-[Service]
-ExecStartPre=/bin/sh -c 'for i in \$(seq 1 20); do [ -S /run/chrony.clk.${GPS_TTY}.sock ] && exit 0; sleep 0.5; done; exit 0'
-EOF
-
-    # Even with the socket existing and correctly named, gpsd's own writes
-    # to it were still silently failing - not a DAC permission problem
-    # (confirmed: works fine at the socket's default root:root 0755), but
-    # Ubuntu/Debian's shipped gpsd AppArmor profile, which only allows the
-    # legacy plain chrony.tty*.sock naming and has no rule at all for
-    # gpsd 3.25+'s chrony.clk.<name>.sock convention. Confirmed via
-    # `journalctl -k | grep apparmor` showing DENIED entries for this exact
-    # socket path once the right log was checked. Covered by a local
-    # override so it survives gpsd package upgrades.
+    # Ubuntu's shipped gpsd AppArmor profile only allows the legacy plain
+    # chrony.tty*.sock naming; it has no rule at all for gpsd 3.25+'s
+    # chrony.clk.<name>.sock convention, silently denying every write
+    # regardless of correct file permissions (confirmed via
+    # `journalctl -k | grep apparmor` showing DENIED entries, and via
+    # strace showing connect() failing with EACCES even as root). Covered
+    # by a local override so it survives gpsd package upgrades.
     if [ -f /etc/apparmor.d/usr.sbin.gpsd ]; then
         APPARMOR_RULE='/{,var/}run/chrony.clk.*.sock rw,'
         APPARMOR_LOCAL=/etc/apparmor.d/local/usr.sbin.gpsd
@@ -251,9 +230,8 @@ EOF
     sudo systemctl enable --now chrony
     sudo systemctl restart gpsd
     echo "chrony configured with GPS refclock. Check with: chronyc sources -v"
-    echo "NOTE: a device already attached to a running gpsd won't pick this up live -"
-    echo "reboot (or 'sudo gpsdctl add <by-id path>' as a live-session workaround) for"
-    echo "the GPS to actually reconnect."
+    echo "(GPS should show nonzero Reach within a couple of poll intervals;"
+    echo "give it a minute or two.)"
 else
     echo "No USB GPS detected under /dev/serial/by-id/ - enabling chrony with network NTP only."
     echo "Re-run this script once a GPS is connected to add the GPS refclock."

@@ -215,10 +215,11 @@ and `g90.conf` in this repo for real, working examples. Fields:
   step. Fixed by adding it. If you're on an older install where this
   already silently skipped, either re-run the script or open VARA HF once
   yourself, close it, then re-run.
-- **gpsd + chrony integration has six separate, non-obvious gotchas** —
-  confirmed 2026-09-11/12 setting this up for real, across several rounds
-  of "fixed it" that turned out not to be. The setup script handles all
-  six, but if it's ever debugged again:
+- **gpsd + chrony integration has seven separate, non-obvious gotchas** —
+  confirmed 2026-09-11/12 setting this up for real, across many rounds of
+  "fixed it" that turned out not to be, including two that looked complete
+  after a successful-seeming reboot and weren't. The setup script handles
+  all seven, but if it's ever debugged again:
   1. **gpsd's SHM interface (the obvious first choice) doesn't work here.**
      gpsd exposes 12 SHM segments; units 0/1 are permanently root-only
      (0600) by design (legacy privileged-ntpd compatibility), and units
@@ -246,76 +247,32 @@ and `g90.conf` in this repo for real, working examples. Fields:
      reachability.
   3. **`<name>` in that socket path is whatever literal device path string
      gpsd itself was told to open the device with — gpsd doesn't
-     canonicalize or resolve it, it just uses that exact string.** This
-     sounds obvious in hindsight but cost an entire extra reboot cycle: a
-     by-id path was tried first (`chrony.clk.usb-u-blox_...-if00.sock`,
-     reasoning "that's the stable identifier, surely that's what gpsd's
-     own udev integration uses") and it genuinely worked — but only
-     because *manual* debug invocations (`gpsd -D 5 /dev/serial/by-id/...`)
-     were themselves seeding gpsd with that exact by-id path as an
-     argument, which only proved gpsd echoes back whatever you hand it.
-     gpsd's real, automatic attachment path is its own shipped udev rule
-     (`/usr/lib/udev/rules.d/60-gpsd.rules`), which feeds a systemd
-     template unit, `gpsdctl@%k.service` — `%k` is the **kernel** device
-     name, and that unit's `ExecStart` is literally
-     `gpsdctl add /dev/%I`. That is always the raw tty name (e.g.
-     `ttyACM0`), confirmed by reading the rule and the unit directly —
-     never a by-id path. So the socket name that actually needs
-     configuring is the tty name the by-id symlink currently resolves to
-     (`basename $(readlink -f /dev/serial/by-id/<name>)`), not the by-id
-     name itself. If `chronyc sources -v` shows `GPS` stuck at `Reach 0`
-     with everything else seemingly right, don't trust an assumed socket
-     filename *or* an assumed naming convention — get gpsd's own debug
-     log (`gpsd -N -n -b -D 5 <device>`) to confirm the exact name it's
-     actually looking for, with the device path it would **actually** be
-     given automatically (check `gpspipe -w -n3` first to see which path
-     gpsd currently has the device open under), the same way this was
-     actually root-caused.
+     canonicalize or resolve it, it just uses that exact string.** Get
+     gpsd's own debug log (`gpsd -N -n -b -D 5 <device>`) to confirm the
+     exact name it's actually looking for if `chronyc sources -v` ever
+     shows `GPS` stuck at `Reach 0` with everything else seemingly right —
+     don't trust an assumed socket filename.
   4. **gpsd must start *after* chronyd**, the reverse of normal boot order
      — SOCK requires gpsd to connect to a socket chronyd creates, so
-     chronyd has to exist first. But "gpsd" here means two separate
-     systemd units, not one: `gpsd.service` (the daemon) *and*
-     `gpsdctl@<tty>.service` (a oneshot unit, triggered directly by
-     gpsd's own shipped udev rule the instant the device node appears,
-     that actually runs `gpsdctl add /dev/<tty>` to tell the daemon about
-     it). Ordering only `gpsd.service` after chrony (which is the first
-     thing tried, and looks right — the daemon does start after chrony on
-     a reboot) **isn't sufficient**, because `gpsdctl@<tty>.service` has
-     its own independent ordering (`After=dev-<tty>.device` only) and can
-     run — and successfully tell an already-listening gpsd about the
-     device — well before chrony exists. Confirmed via
-     `journalctl -b -u 'gpsdctl@ttyACM0.service' -u gpsd.service -u
-     chrony.service` on a real reboot 2026-09-12: `gpsdctl@ttyACM0`
-     logged `reached a running gpsd` at a timestamp **14+ seconds before**
-     `chrony.service` even started, even though `gpsd.service`'s own
-     "Starting" log line correctly came after chrony. The device's
-     NTP/chrony-socket linkage is set up at that early `gpsdctl add`
-     moment, not whenever `gpsd.service` itself happens to start. Fixed
-     by giving `gpsdctl@.service` (note the bare template, so it applies
-     to whatever tty the GPS enumerates as) the identical
-     `After=chrony.service` + `Wants=chrony.service` +
-     `ExecStartPre` socket-wait treatment as `gpsd.service` — the setup
-     script creates both drop-ins. If `chronyc sources -v` shows `GPS`
-     stuck at `Reach 0` even after a clean reboot with everything above
-     verified correct, check `journalctl -b -u 'gpsdctl@*'` for exactly
-     when the "add" actually happened relative to chrony's own start
-     time — don't assume `gpsd.service`'s own ordering covers it.
-  5. **Even with correct `After=`/`Wants=` ordering and a genuine reboot,
-     there's still a real sub-second race** — confirmed 2026-09-12: on a
-     clean boot, `gpsd`'s `ExecStart` ran essentially simultaneously with
-     `chrony.service`'s own `ActiveEnterTimestamp`, not clearly after it.
-     `After=` on a `Type=forking` service (chrony's type here) only
-     guarantees "the forking parent process exited," not "chrony has
-     finished creating the refclock SOCK file" — those aren't the same
-     moment, and gpsd can win that race. Fixed with an `ExecStartPre` on
-     gpsd's drop-in that actively waits (bounded to 10s, never fails
-     gpsd's own startup if it times out — this is a nice-to-have, not
-     something that should be able to block GPS/ADS-B functionality) for
-     the socket to actually exist before gpsd's real `ExecStart` runs.
+     chronyd has to exist first. A systemd drop-in on `gpsd.service`
+     (`/etc/systemd/system/gpsd.service.d/after-chrony.conf`,
+     `After=chrony.service` + `Wants=chrony.service`) handles this; the
+     setup script creates it.
+  5. **Even with correct `After=`/`Wants=` ordering, there's still a real
+     sub-second race** — confirmed 2026-09-12: on a clean boot, `gpsd`'s
+     `ExecStart` ran essentially simultaneously with `chrony.service`'s
+     own `ActiveEnterTimestamp`, not clearly after it. `After=` on a
+     `Type=forking` service (chrony's type here) only guarantees "the
+     forking parent process exited," not "chrony has finished creating
+     the refclock SOCK file" — those aren't the same moment, and gpsd can
+     win that race. Fixed with an `ExecStartPre` on gpsd's drop-in that
+     actively waits (bounded to 10s, never fails gpsd's own startup if it
+     times out) for the socket to actually exist before gpsd's real
+     `ExecStart` runs.
   6. **Even with the socket correctly named, existing, and writable by
      plain Unix permissions, gpsd's writes to it were still silently
-     failing — AppArmor, not DAC permissions, was the actual final
-     blocker.** Ubuntu ships an enforcing AppArmor profile for gpsd
+     failing — AppArmor, not DAC permissions, was the actual blocker.**
+     Ubuntu ships an enforcing AppArmor profile for gpsd
      (`/etc/apparmor.d/usr.sbin.gpsd`) that only allows the legacy plain
      `chrony.tty*.sock` naming; it has no rule at all for gpsd 3.25+'s
      `chrony.clk.<name>.sock` convention (gotcha 2), regardless of what
@@ -334,10 +291,53 @@ and `g90.conf` in this repo for real, working examples. Fields:
      package's own designated site-override include, so it survives a
      gpsd package upgrade) adding `/{,var/}run/chrony.clk.*.sock rw,`,
      reloaded via `apparmor_parser -r /etc/apparmor.d/usr.sbin.gpsd`; the
-     setup script does this automatically. If `chronyc sources -v` still
-     shows `GPS` stuck at `Reach 0` after all five other gotchas are
-     ruled out, check `journalctl -k | grep -i apparmor | grep -i gpsd`
-     before assuming the socket/ordering logic is wrong again.
+     setup script does this automatically.
+  7. **The big one: gpsd only reliably sets up the chrony SOCK link for a
+     device it opens directly at its OWN startup — a device attached
+     later via udev hotplug (gpsd's normal, default behavior: USBAUTO +
+     a udev rule that runs `gpsdctl add`) never gets linked, no matter how
+     correctly every other gotcha above is fixed.** This is what made the
+     previous six look solved after a successful reboot and then fail
+     anyway: gotchas 1-6 were all real and all necessary, but every live
+     test and even a from-cold reboot kept showing `GPS` stuck at
+     `Reach 0` until this was found. Confirmed by direct, repeated A/B
+     comparison 2026-09-12: dozens of `gpsdctl add` attempts (manual, and
+     via udev automatically on a real reboot, with gotchas 1-6 already
+     fixed and double-checked via `journalctl -k | grep apparmor` showing
+     zero denials) consistently left `Reach 0`, while configuring the
+     device to be opened directly by gpsd's own `ExecStart` instead —
+     via `DEVICES="<by-id path>"` in `/etc/default/gpsd`, the traditional
+     static-device config most hotplug-oriented guides skip — worked
+     immediately and reliably, reaching `Reach 377` (fully saturated)
+     within a couple of poll intervals. An earlier fix attempt chased a
+     *plausible-looking but wrong* theory here: that only `gpsd.service`
+     itself needed `After=chrony.service`, not the separate
+     `gpsdctl@<tty>.service` unit that udev actually triggers to do the
+     "add" — ordering that unit after chrony too (confirmed via
+     `journalctl -b -u 'gpsdctl@ttyACM0.service'` showing it then
+     correctly running after chrony on a reboot, instead of 14+ seconds
+     before) still left `Reach 0`. The ordering fix wasn't wrong to try,
+     but it wasn't the actual mechanism — a hotplug-attached device
+     apparently just doesn't get the chrony link set up regardless of
+     *when* it's attached. `USBAUTO` stays enabled in `/etc/default/gpsd`
+     (harmless, and still useful if the GPS is ever unplugged/replugged
+     for non-NTP purposes like the ADS-B feed), but it's the static
+     `DEVICES` line doing the actual work here.
+  8. **A seemingly-reasonable refclock tuning parameter introduced a
+     rock-solid, systematic ~926ms time error.** chrony's `offset`
+     refclock parameter applies a fixed correction to every sample, meant
+     for plain serial NMEA refclocks with a known one-NMEA-cycle lag —
+     it does not apply to gpsd's SOCK feed, since gpsd already timestamps
+     each fix itself before forwarding it. An earlier version of this
+     setup added `offset 0.9999` anyway (copied from a generic
+     NMEA-refclock example), which produced a suspiciously *exact and
+     noise-free* `-926ms` reading in `chronyc sourcestats` (std dev only
+     ~800µs) once gotchas 1-7 were finally all fixed — tight, consistent
+     jitter like that from GPS is a tell that the bias is a config
+     mistake, not a hardware/precision problem. Removing the `offset`
+     parameter entirely dropped the reading to a steady ~80ms with ~1ms
+     jitter, consistent with normal USB-serial + gpsd processing latency
+     for a non-PPS GPS puck, and well within what FT8 needs.
 - **Conky can crash at autostart on some boots** — confirmed 2026-09-12
   via a core dump (`coredumpctl gdb conky`, `bt`): it calls
   `XGetWindowProperty` while walking the window hierarchy to find the
