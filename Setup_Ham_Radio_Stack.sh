@@ -146,21 +146,27 @@ sudo systemctl disable --now systemd-timesyncd 2>/dev/null || true
 
 GPS_BY_ID=$(ls /dev/serial/by-id/ 2>/dev/null | grep -i gps | head -1)
 if [ -n "$GPS_BY_ID" ]; then
-    GPS_TTY=$(basename "$(readlink -f "/dev/serial/by-id/$GPS_BY_ID")")
-    REFCLOCK_LINE="refclock SOCK /run/chrony.clk.${GPS_TTY}.sock refid GPS precision 1e-1 offset 0.9999"
-    if ! grep -q "^refclock SOCK .*${GPS_TTY}" /etc/chrony/chrony.conf 2>/dev/null; then
+    # The socket's name is the by-id path's own basename, NOT the raw tty
+    # name (e.g. ttyACM0) it happens to resolve to - confirmed straight
+    # from gpsd's own `-D 5` debug output ("chrony socket
+    # /run/chrony.clk.<by-id-name>.sock doesn't exist"). This matters
+    # because gpsd's USBAUTO/udev integration adds devices by their by-id
+    # path (that's the whole point of using it - stability across
+    # reboots/re-enumeration), so that's the string gpsd's own
+    # socket-naming logic actually uses, not the tty basename an earlier
+    # version of this script incorrectly assumed.
+    REFCLOCK_LINE="refclock SOCK /run/chrony.clk.${GPS_BY_ID}.sock refid GPS precision 1e-1 offset 0.9999"
+    if ! grep -q "^refclock SOCK .*${GPS_BY_ID}" /etc/chrony/chrony.conf 2>/dev/null; then
         # Remove any older refclock line (e.g. from a previous run against
-        # a GPS that enumerated under a different tty name - this ties to
-        # the raw tty basename, not a stable by-id path, since that's
-        # gpsd's own socket-naming convention; if the GPS ever enumerates
-        # under a different name, re-run this script to pick up the change.
+        # a different GPS, or an older version of this script's incorrect
+        # tty-based naming) before adding the current correct one.
         sudo sed -i '/^refclock SOCK .*\.clk\./d' /etc/chrony/chrony.conf
         echo "" | sudo tee -a /etc/chrony/chrony.conf > /dev/null
         echo "# GPS time via gpsd's SOCK interface - added by Setup_Ham_Radio_Stack.sh" | sudo tee -a /etc/chrony/chrony.conf > /dev/null
         echo "$REFCLOCK_LINE" | sudo tee -a /etc/chrony/chrony.conf > /dev/null
-        echo "Added GPS refclock ($GPS_TTY) to chrony.conf."
+        echo "Added GPS refclock to chrony.conf."
     else
-        echo "GPS refclock already configured for $GPS_TTY."
+        echo "GPS refclock already configured."
     fi
 
     # After=/Wants= alone only guarantees chrony.service's own start job
@@ -179,12 +185,15 @@ After=chrony.service
 Wants=chrony.service
 
 [Service]
-ExecStartPre=/bin/sh -c 'for i in \$(seq 1 20); do [ -S /run/chrony.clk.${GPS_TTY}.sock ] && exit 0; sleep 0.5; done; exit 0'
+ExecStartPre=/bin/sh -c 'for i in \$(seq 1 20); do [ -S /run/chrony.clk.${GPS_BY_ID}.sock ] && exit 0; sleep 0.5; done; exit 0'
 EOF
     sudo systemctl daemon-reload
     sudo systemctl enable --now chrony
     sudo systemctl restart gpsd
     echo "chrony configured with GPS refclock. Check with: chronyc sources -v"
+    echo "NOTE: a device already attached to a running gpsd won't pick this up live -"
+    echo "reboot (or 'sudo gpsdctl add <by-id path>' as a live-session workaround) for"
+    echo "the GPS to actually reconnect."
 else
     echo "No USB GPS detected under /dev/serial/by-id/ - enabling chrony with network NTP only."
     echo "Re-run this script once a GPS is connected to add the GPS refclock."
