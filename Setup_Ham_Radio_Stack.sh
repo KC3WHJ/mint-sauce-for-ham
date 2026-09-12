@@ -200,6 +200,28 @@ Wants=chrony.service
 ExecStartPre=/bin/sh -c 'for i in \$(seq 1 20); do [ -S /run/chrony.clk.${GPS_TTY}.sock ] && exit 0; sleep 0.5; done; exit 0'
 EOF
 
+    # gpsd.service itself starting after chrony isn't enough: the actual
+    # device-attach command comes from a SEPARATE systemd unit,
+    # gpsdctl@<tty>.service (udev-triggered directly off the device
+    # appearing, via gpsd's own shipped udev rule - see the by-id/tty
+    # comment above). Confirmed via `journalctl -b -u gpsdctl@ttyACM0` on
+    # a real reboot 2026-09-12: it ran and successfully told gpsd to open
+    # the device a full 14+ seconds BEFORE chrony.service even started,
+    # well before gpsd.service's own chrony-ordered startup. gpsd's
+    # internal per-device chrony-socket connection attempt happens at
+    # that device-open moment, independent of whether the main gpsd
+    # daemon is separately ordered after chrony - so this unit needs the
+    # exact same ordering + wait treatment on its own.
+    sudo mkdir -p /etc/systemd/system/gpsdctl@.service.d
+    sudo tee /etc/systemd/system/gpsdctl@.service.d/after-chrony.conf > /dev/null <<EOF
+[Unit]
+After=chrony.service
+Wants=chrony.service
+
+[Service]
+ExecStartPre=/bin/sh -c 'for i in \$(seq 1 20); do [ -S /run/chrony.clk.${GPS_TTY}.sock ] && exit 0; sleep 0.5; done; exit 0'
+EOF
+
     # Even with the socket existing and correctly named, gpsd's own writes
     # to it were still silently failing - not a DAC permission problem
     # (confirmed: works fine at the socket's default root:root 0755), but

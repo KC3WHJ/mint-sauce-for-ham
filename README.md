@@ -273,19 +273,33 @@ and `g90.conf` in this repo for real, working examples. Fields:
      actually root-caused.
   4. **gpsd must start *after* chronyd**, the reverse of normal boot order
      — SOCK requires gpsd to connect to a socket chronyd creates, so
-     chronyd has to exist first. A systemd drop-in
-     (`/etc/systemd/system/gpsd.service.d/after-chrony.conf`,
-     `After=chrony.service` + `Wants=chrony.service`) makes this permanent
-     across reboots; the setup script creates it. **Only takes effect
-     after a full reboot** — mid-session, restarting gpsd (or even
-     manually re-adding the GPS device via `gpsdctl add` after chrony was
-     already up) leaves the device genuinely open and streaming
-     (confirmed via `gpspipe`/`cgps`) but it still won't reconnect to the
-     chrony socket. A device present at gpsd's own daemon startup appears
-     to go through different internal handling than one added later via
-     `gpsdctl` — a real boot (chrony up first per the drop-in, then gpsd's
-     normal udev coldplug pass re-discovers the already-connected GPS)
-     exercises the right code path.
+     chronyd has to exist first. But "gpsd" here means two separate
+     systemd units, not one: `gpsd.service` (the daemon) *and*
+     `gpsdctl@<tty>.service` (a oneshot unit, triggered directly by
+     gpsd's own shipped udev rule the instant the device node appears,
+     that actually runs `gpsdctl add /dev/<tty>` to tell the daemon about
+     it). Ordering only `gpsd.service` after chrony (which is the first
+     thing tried, and looks right — the daemon does start after chrony on
+     a reboot) **isn't sufficient**, because `gpsdctl@<tty>.service` has
+     its own independent ordering (`After=dev-<tty>.device` only) and can
+     run — and successfully tell an already-listening gpsd about the
+     device — well before chrony exists. Confirmed via
+     `journalctl -b -u 'gpsdctl@ttyACM0.service' -u gpsd.service -u
+     chrony.service` on a real reboot 2026-09-12: `gpsdctl@ttyACM0`
+     logged `reached a running gpsd` at a timestamp **14+ seconds before**
+     `chrony.service` even started, even though `gpsd.service`'s own
+     "Starting" log line correctly came after chrony. The device's
+     NTP/chrony-socket linkage is set up at that early `gpsdctl add`
+     moment, not whenever `gpsd.service` itself happens to start. Fixed
+     by giving `gpsdctl@.service` (note the bare template, so it applies
+     to whatever tty the GPS enumerates as) the identical
+     `After=chrony.service` + `Wants=chrony.service` +
+     `ExecStartPre` socket-wait treatment as `gpsd.service` — the setup
+     script creates both drop-ins. If `chronyc sources -v` shows `GPS`
+     stuck at `Reach 0` even after a clean reboot with everything above
+     verified correct, check `journalctl -b -u 'gpsdctl@*'` for exactly
+     when the "add" actually happened relative to chrony's own start
+     time — don't assume `gpsd.service`'s own ordering covers it.
   5. **Even with correct `After=`/`Wants=` ordering and a genuine reboot,
      there's still a real sub-second race** — confirmed 2026-09-12: on a
      clean boot, `gpsd`'s `ExecStart` ran essentially simultaneously with
