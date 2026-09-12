@@ -2,7 +2,9 @@
 
 One script to set up a full ham radio + SDR station on Linux Mint (or any
 Ubuntu-based distro): ADS-B aircraft tracking, general-purpose SDR
-reception, and a Wine-based digital-modes stack for the Icom IC-705.
+reception, and a Wine-based digital-modes stack supporting multiple radios
+(currently IC-705, IC-7300, FT-891, TX-500 MP, and G-90 — see
+[Multi-radio support](#multi-radio-support)).
 
 ## What it installs
 
@@ -34,12 +36,13 @@ reception, and a Wine-based digital-modes stack for the Icom IC-705.
 
 ## Multi-radio support
 
-This station runs more than one radio (currently an Icom IC-705, Yaesu
-FT-891, Lab599 TX-500 MP, and Xiegu G-90), each connected via its own
-cable/interface. Rather than auto-detecting which one to use — which
-breaks the moment two are plugged in at once — `~/.local/bin/select-radio.sh`
-(installed by the setup script from `bin/`) shows an explicit picker and
-points a symlink, `~/radio_profiles/active-radio.conf`, at whichever one
+This station runs more than one radio (currently an Icom IC-705, Icom
+IC-7300, Yaesu FT-891, Lab599 TX-500 MP, and Xiegu G-90), each connected
+via its own cable/interface. Rather than auto-detecting which one to use —
+which breaks the moment two are plugged in at once —
+`~/.local/bin/select-radio.sh` (installed by the setup script from `bin/`)
+shows an explicit picker and points a symlink,
+`~/radio_profiles/active-radio.conf`, at whichever one
 you choose. Every launcher script (`Start_Flrig_Radio.sh`,
 `sync-radio-audio.sh`, `Start_Pat.sh`, `Start_Pat_FM.sh`) just reads that
 one file — nothing else needs to change when you add a radio.
@@ -52,8 +55,8 @@ bash (`KEY="value"`, sourced directly) rather than EmComm's JSON, to avoid
 a `jq` dependency and reuse this project's existing config style.
 
 Each radio gets a profile at `radio_profiles/<name>.conf` — see
-`radio_profiles/ic705.conf`, `ft891.conf`, `tx500mp.conf`, and `g90.conf`
-in this repo for real, working examples. Fields:
+`radio_profiles/ic705.conf`, `ic7300.conf`, `ft891.conf`, `tx500mp.conf`,
+and `g90.conf` in this repo for real, working examples. Fields:
 
 | Field | Meaning |
 |---|---|
@@ -68,6 +71,8 @@ in this repo for real, working examples. Fields:
 | `FLRIG_NAME` | Rig name as flrig itself calls it (only needed for VarAC's path) |
 | `FLRIG_BIN` / `FLRIG_CONFIG_DIR` | Optional: a separate flrig build/prefs dir for one radio |
 | `AUDIO_SCRIPT` | Optional: path to a one-time ALSA mixer-tuning script (see `radio_profiles/audio/`) for radios whose default mic/speaker levels are wrong |
+| `CIV_ADDR` | Radio's default CI-V address (e.g. `A4` for IC-705, `94` for IC-7300) — used by `channel-tools/` |
+| `MEMORY_GROUPS` | `"true"`/`"false"` — whether this radio has grouped/banked memory (multi-band, e.g. IC-705) vs. a flat single-band memory space (e.g. IC-7300) — used by `channel-tools/`, see [Memory channel tools](#memory-channel-tools) |
 | `NOTES` | Multi-line operator/panel-setting reminders, printed when you select this radio |
 
 ### Hard-won lessons (so you don't have to relearn them)
@@ -225,7 +230,9 @@ visible effect — there's no CI-V command to force that).
 - A Debian/Ubuntu-based distro (built and tested on Linux Mint).
 - An RTL-SDR dongle (any RTL2832U-based one) if you want the ADS-B/SDR++
   pieces.
-- An Icom IC-705 if you want the ham digital-modes stack.
+- One of the supported radios (IC-705, IC-7300, FT-891, TX-500 MP, G-90)
+  if you want the ham digital-modes stack — see
+  [Multi-radio support](#multi-radio-support) for adding a different one.
 - The proprietary/Windows installers for VarAC, VARA HF, VARA FM, plus the
   JS8Call/WSJT-X/GridTracker/Pat `.deb` packages, downloaded ahead of time
   into `~/Downloads` (or wherever `DOWNLOADS` points to in your config).
@@ -391,6 +398,22 @@ session:
   needs its own distinct name since both may feed at once. Now takes the
   name as an argument, driven by `ADSB_FEEDER_NAME` in `config.sh` (one
   value per machine, never committed).
+
+A third round (2026-09-10/11, same desktop station) added a fifth radio
+(IC-7300) as the first flat-memory/HF-only radio this project has
+supported, which surfaced real CI-V differences from every radio added
+before it (see `channel-tools/README.md`'s "Grouped vs. flat memory"
+section, and the "Hard-won lessons" above for the flrig prefs-wrapping and
+DATA MOD/keyer-type findings). Verified end-to-end on real hardware: flrig
+CAT connectivity, `rigctld`-direct control (WSJT-X/JS8Call/Pat), VARA HF
+audio (both RX metering and, after finding the PC-side output level was
+too low by default, TX drive confirmed via a real over-the-air VARA
+connection), and memory-channel programming (53 HF channels programmed
+and spot-checked directly against the radio with zero failures, later
+extended to 83 with national nets and an AmRRON group — see
+`channel-tools/`). The generalized `channel-tools/` toolkit itself (renamed
+from `ic705-channel-tools/`) was regression-tested against the original
+IC-705 to confirm the refactor didn't change its existing behavior.
 
 ## Backups
 
