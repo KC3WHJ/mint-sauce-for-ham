@@ -33,6 +33,13 @@ reception, and a Wine-based digital-modes stack supporting multiple radios
   station-ID timer** positioned directly beneath it (Start/Cancel buttons,
   beeps and flashes at each 10-minute mark, auto-repeats until cancelled).
   Both autostart on login.
+- **chrony, configured to use the USB GPS as a time source** alongside
+  normal internet NTP — accurate time with zero internet dependency, which
+  matters more for off-grid/emergency-comms use (AmRRON, etc.) than for
+  FT8 specifically (plain NTP already comfortably beats FT8's ~0.5s
+  tolerance). See "Hard-won lessons" below for the real gpsd/chrony
+  integration gotchas this required — the naive setup silently does
+  nothing.
 
 ## Multi-radio support
 
@@ -208,6 +215,46 @@ and `g90.conf` in this repo for real, working examples. Fields:
   step. Fixed by adding it. If you're on an older install where this
   already silently skipped, either re-run the script or open VARA HF once
   yourself, close it, then re-run.
+- **gpsd + chrony integration has three separate, non-obvious gotchas** —
+  confirmed 2026-09-11/12 setting this up for real. The setup script
+  handles all three, but if it's ever debugged again:
+  1. **gpsd's SHM interface (the obvious first choice) doesn't work here.**
+     gpsd exposes 12 SHM segments; units 0/1 are permanently root-only
+     (0600) by design (legacy privileged-ntpd compatibility), and units
+     2/3 are the unprivileged-accessible equivalent — but gpsd only
+     populates *one* pair, whichever it has permission for based on what
+     user *gpsd itself* runs as. This gpsd runs as root (systemd default,
+     needed for raw device access), so it only ever populates 0/1 — never
+     2/3 — meaning chronyd (which drops root privilege, `+PRIVDROP`) can
+     never read either pair. `ipcs -m` showing units 0/1 as `600` and 2+
+     as `666` is the tell; `ntpshmmon` returning nothing for *any* unit
+     (not just a permission error) is what confirms gpsd isn't writing to
+     2/3 at all, not just that they're unreadable.
+  2. **chrony's own FAQ recommends its SOCK interface over SHM anyway**
+     (better security), which sidesteps the whole permission problem — but
+     gpsd 3.25 (installed here) introduced *two* SOCK naming conventions:
+     plain `/run/chrony.<tty>.sock` is PPS-only, while NMEA-only ("clock")
+     data — all a plain USB GPS puck without a PPS output pin has — needs
+     `/run/chrony.clk.<tty>.sock` instead (note the `.clk.` infix). Using
+     the plain name with an NMEA-only GPS silently does nothing; no error
+     on either side, the refclock just never shows reachability.
+  3. **gpsd must start *after* chronyd**, the reverse of normal boot order
+     — SOCK requires gpsd to connect to a socket chronyd creates, so
+     chronyd has to exist first. A systemd drop-in
+     (`/etc/systemd/system/gpsd.service.d/after-chrony.conf`,
+     `After=chrony.service` + `Wants=chrony.service`) makes this permanent
+     across reboots; the setup script creates it. **Only verified working
+     after a full reboot** — mid-session, restarting gpsd (or even
+     manually re-adding the GPS device via `gpsdctl add` after chrony was
+     already up) left it with the device genuinely open and streaming
+     (confirmed via `gpspipe`/`cgps`) but still never connecting to the
+     chrony socket. A device present at gpsd's own daemon startup appears
+     to go through different internal handling than one added later via
+     `gpsdctl` — a real boot (chrony up first per the drop-in, then gpsd's
+     normal udev coldplug pass re-discovers the already-connected GPS) is
+     what actually exercises the working code path. If `chronyc sources -v`
+     ever shows `GPS` stuck at `Reach 0` after a config change, reboot
+     before assuming the config itself is wrong.
 
 ## Memory channel tools
 

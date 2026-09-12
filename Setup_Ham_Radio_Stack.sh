@@ -12,6 +12,8 @@
 #     instead (see Start_VarAC.sh) since its Hamlib option doesn't work
 #     under this Wine build - flrig and rigctld can't run at the same time,
 #     since both want exclusive access to the one physical serial port.
+#   - chrony, using the USB GPS as a time source (alongside normal NTP) -
+#     accurate time with no internet dependency, for off-grid use.
 #
 # Assumes: this user has sudo rights, and the proprietary/Windows installers
 # (VarAC, VARA HF, VARA FM, and the JS8Call/WSJT-X/GridTracker/Pat .deb
@@ -60,7 +62,7 @@ if ! dpkg --print-foreign-architectures | grep -q i386; then
 fi
 sudo apt update
 sudo apt install -y wine winetricks cabextract winbind libhamlib-utils curl \
-    rtl-sdr gpsd gpsd-clients jq wget unzip git flrig conky-all \
+    rtl-sdr gpsd gpsd-clients chrony jq wget unzip git flrig conky-all \
     lm-sensors python3-tk pulseaudio-utils sound-theme-freedesktop \
     wmctrl x11-utils python3-serial
 
@@ -123,6 +125,59 @@ fi
 section "Enabling readsb + gpsd"
 sudo systemctl enable --now gpsd.service || true
 sudo systemctl enable --now readsb.service || true
+
+section "Configuring chrony to use the GPS for time sync"
+# FT8 only needs ~0.5s accuracy, already met by plain internet NTP - the
+# real value of GPS timing here is accurate time with ZERO internet
+# dependency (useful for this station's off-grid/emergency-comms angle,
+# e.g. AmRRON). gpsd's SHM interface looks like the obvious choice but its
+# SHM units 0/1 are permanently root-only by design, and gpsd here runs as
+# root so it never populates the unprivileged-accessible units 2/3 either
+# - chronyd (which drops root privilege) can never read either pair.
+# chrony's own FAQ recommends its newer SOCK interface instead, which
+# sidesteps this entirely - but it needs the exact NMEA-only ("clock", not
+# PPS - this is a plain USB GPS puck with no PPS output) socket naming
+# convention gpsd 3.25+ introduced (.clk. infix), and gpsd must start
+# AFTER chronyd creates the socket, the reverse of normal boot order.
+# All three of these were found and fixed live on a real machine
+# 2026-09-11 - see the "Hard-won lessons" section of README.md for the
+# full diagnostic trail if this needs revisiting.
+sudo systemctl disable --now systemd-timesyncd 2>/dev/null || true
+
+GPS_BY_ID=$(ls /dev/serial/by-id/ 2>/dev/null | grep -i gps | head -1)
+if [ -n "$GPS_BY_ID" ]; then
+    GPS_TTY=$(basename "$(readlink -f "/dev/serial/by-id/$GPS_BY_ID")")
+    REFCLOCK_LINE="refclock SOCK /run/chrony.clk.${GPS_TTY}.sock refid GPS precision 1e-1 offset 0.9999"
+    if ! grep -q "^refclock SOCK .*${GPS_TTY}" /etc/chrony/chrony.conf 2>/dev/null; then
+        # Remove any older refclock line (e.g. from a previous run against
+        # a GPS that enumerated under a different tty name - this ties to
+        # the raw tty basename, not a stable by-id path, since that's
+        # gpsd's own socket-naming convention; if the GPS ever enumerates
+        # under a different name, re-run this script to pick up the change.
+        sudo sed -i '/^refclock SOCK .*\.clk\./d' /etc/chrony/chrony.conf
+        echo "" | sudo tee -a /etc/chrony/chrony.conf > /dev/null
+        echo "# GPS time via gpsd's SOCK interface - added by Setup_Ham_Radio_Stack.sh" | sudo tee -a /etc/chrony/chrony.conf > /dev/null
+        echo "$REFCLOCK_LINE" | sudo tee -a /etc/chrony/chrony.conf > /dev/null
+        echo "Added GPS refclock ($GPS_TTY) to chrony.conf."
+    else
+        echo "GPS refclock already configured for $GPS_TTY."
+    fi
+
+    sudo mkdir -p /etc/systemd/system/gpsd.service.d
+    sudo tee /etc/systemd/system/gpsd.service.d/after-chrony.conf > /dev/null <<'EOF'
+[Unit]
+After=chrony.service
+Wants=chrony.service
+EOF
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now chrony
+    sudo systemctl restart gpsd
+    echo "chrony configured with GPS refclock. Check with: chronyc sources -v"
+else
+    echo "No USB GPS detected under /dev/serial/by-id/ - enabling chrony with network NTP only."
+    echo "Re-run this script once a GPS is connected to add the GPS refclock."
+    sudo systemctl enable --now chrony
+fi
 
 section "Installing SDR++ (nightly .deb for Ubuntu Noble base)"
 if ! command -v sdrpp &>/dev/null; then
