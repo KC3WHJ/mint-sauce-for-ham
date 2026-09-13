@@ -12,6 +12,10 @@
 #     instead (see Start_VarAC.sh) since its Hamlib option doesn't work
 #     under this Wine build - flrig and rigctld can't run at the same time,
 #     since both want exclusive access to the one physical serial port.
+#   - Fldigi, Flmsg, Flamp, vARIM (Linux-native VARA front-end alongside
+#     VarAC), and CommStat (JS8Call situational-awareness companion) - the
+#     rest of the AmRRON digital-comms toolset, see README's "AmRRON
+#     digital comms" section.
 #   - chrony, using the USB GPS as a time source (alongside normal NTP) -
 #     accurate time with no internet dependency, for off-grid use.
 #
@@ -29,6 +33,10 @@
 #   - The Wine installers (VarAC/VARA HF/VARA FM) are launched interactively
 #     since their silent-install support was never verified - click through
 #     each wizard once when its window appears.
+#   - Fldigi's own first-run Configuration Wizard is similarly interactive
+#     (rig control, sound card, callsign) - click through it once after
+#     install; see README's "AmRRON digital comms" section for the
+#     specific values to use for this station.
 #   - The ADS-B Exchange feed installer is also interactive (it uses
 #     whiptail dialogs to ask for your station's lat/lon/altitude and,
 #     optionally, your ADS-B Exchange account UUID).
@@ -602,6 +610,158 @@ with open(path, "w") as f:
 print(f"Wrote {path}")
 PYEOF
 
+section "Installing Fldigi suite (Fldigi, Flmsg, Flamp) - AmRRON digital comms"
+# All three are in the distro repo (Fldigi 4.2.03, Flmsg 4.0.23, Flamp
+# 2.2.09 as of Noble universe) - Flrig is already installed above and
+# shared with VarAC.
+sudo apt install -y fldigi flmsg flamp
+
+# Fldigi's first-run Configuration Wizard is a genuinely modal,
+# multi-step interactive dialog that can't be scripted through (confirmed
+# 2026-09-13 on real hardware): it blocks fldigi_def.xml from ever being
+# written until closed, and its own "Use Hamlib" checkbox has a real bug
+# where it visually accepts clicks (even a pixel-precise synthetic
+# XTest click, ruling out a hit-testing issue) but never actually toggles
+# - and separately, the wizard's MYCALL field silently failed to save
+# too (MYNAME/MYQTH/MYLOC did save correctly), while all of this only
+# gets written to disk on a clean exit (SIGTERM/timeout-killing it early
+# leaves no file at all). Rather than fight the wizard, this section
+# patches the real XML keys directly once the file exists - bypassing
+# the buggy checkbox entirely, and doubling as the one truly reliable way
+# to configure this.
+FLDIGI_XML="$HOME/.fldigi/fldigi_def.xml"
+if [ -f "$FLDIGI_XML" ]; then
+    if pgrep -x fldigi >/dev/null; then
+        echo "NOTE: fldigi is currently running - close it first (File > Exit) so"
+        echo "this doesn't get overwritten, then re-run this script to apply the fix."
+    else
+        sed -i \
+            -e 's|<CHKUSEHAMLIBIS>0</CHKUSEHAMLIBIS>|<CHKUSEHAMLIBIS>1</CHKUSEHAMLIBIS>|' \
+            -e "s|<HAMRIGDEVICE>.*</HAMRIGDEVICE>|<HAMRIGDEVICE>127.0.0.1:4532</HAMRIGDEVICE>|" \
+            -e 's|<HAMRIGMODEL>.*</HAMRIGMODEL>|<HAMRIGMODEL>2</HAMRIGMODEL>|' \
+            -e "s|<MYCALL></MYCALL>|<MYCALL>$CALLSIGN</MYCALL>|" \
+            -e 's|<RECEIVERSID>0</RECEIVERSID>|<RECEIVERSID>1</RECEIVERSID>|' \
+            "$FLDIGI_XML"
+        echo "Patched $FLDIGI_XML: Hamlib NET rigctl -> 127.0.0.1:4532 (the shared"
+        echo "rigctld bridge), callsign, RX RSID enabled."
+    fi
+else
+    echo "NOTE: Fldigi hasn't been run yet, so $FLDIGI_XML doesn't exist."
+    echo "Launch Fldigi once (via Start_Fldigi.sh below, or plain 'fldigi'), click"
+    echo "through its first-run wizard with any values (they'll be overwritten),"
+    echo "close it via File > Exit, then re-run this script to apply the real"
+    echo "rig-control config automatically."
+fi
+
+section "Building vARIM (open-source Linux-native front-end for the VARA HF modem)"
+# AmRRON's toolset lists vARIM alongside VarAC as the two VARA front-ends
+# (VarAC: Windows-polished via Wine; vARIM: Linux-native, open-source,
+# lighter-weight) - see README's AmRRON section. Source-only (GPLv3), no
+# distro package. Confirmed idempotent: skips the build if already
+# installed.
+sudo apt install -y build-essential libfltk1.3-dev zlib1g-dev
+if ! command -v varim &>/dev/null; then
+    VARIM_TMP=$(mktemp -d)
+    wget -q -O "$VARIM_TMP/varim.tar.gz" https://www.whitemesa.net/varim/src/varim-1.12.tar.gz
+    tar xzf "$VARIM_TMP/varim.tar.gz" -C "$VARIM_TMP"
+    (cd "$VARIM_TMP/varim-1.12" && ./configure && make && sudo make install)
+    rm -rf "$VARIM_TMP"
+    echo "vARIM installed: $(which varim)"
+else
+    echo "vARIM already installed: $(which varim)"
+fi
+
+# vARIM's config (~/varim/varim.ini) doesn't exist until first launch -
+# force a brief run to generate the default template, then patch it. The
+# default template ships with TWO example [port] sections (both pointing
+# at the same tcp-port=8300, which would be redundant/confusing for this
+# station's single VARA HF instance) - this trims to just the first,
+# patches in the real callsign/grid, and sets ptt-mode to VOX rather than
+# the sample's DTR/ttyUSB0 (this station has no hardware PTT serial line;
+# CAT-based PTT goes through the rigctld-ip-addr/rigctld-tcp-port fields,
+# which the default template already points at 127.0.0.1:4532 - the same
+# shared rigctld bridge WSJT-X/JS8Call/Pat use, confirmed correct as-is).
+# Note: vARIM's own man page (man 5 varim) doesn't fully clarify whether
+# rigctld-based PTT and ptt-mode are independent or one overrides the
+# other - verify on first real transmission rather than assuming.
+VARIM_INI="$HOME/varim/varim.ini"
+if [ ! -f "$VARIM_INI" ]; then
+    mkdir -p "$HOME/varim"
+    timeout 5 varim >/dev/null 2>&1 || true
+fi
+if [ -f "$VARIM_INI" ] && ! grep -q "mycall = $CALLSIGN" "$VARIM_INI"; then
+    python3 - "$VARIM_INI" "$CALLSIGN" "$GRID" <<'PYEOF'
+import sys
+path, callsign, grid = sys.argv[1:4]
+with open(path) as f:
+    lines = f.readlines()
+
+sections = []
+cur_header, cur_lines = None, []
+for line in lines:
+    if line.startswith('[') and ']' in line.split('#')[0]:
+        sections.append((cur_header, cur_lines))
+        cur_header, cur_lines = line.strip(), [line]
+    else:
+        cur_lines.append(line)
+sections.append((cur_header, cur_lines))
+
+out, seen_port = [], False
+for header, block in sections:
+    if header == '[port]':
+        if seen_port:
+            continue
+        seen_port = True
+        text = ''.join(block)
+        text = text.replace('mycall = NOCALL', f'mycall = {callsign}')
+        text = text.replace('gridsq = FN31', f'gridsq = {grid}')
+        text = text.replace('ptt-mode = DTR', 'ptt-mode = VOX')
+        text = '\n'.join(l for l in text.split('\n') if not l.startswith('ptt-device'))
+        out.append(text)
+    elif header == '[arim]':
+        out.append(''.join(block).replace('mycall = NOCALL', f'mycall = {callsign}'))
+    else:
+        out.append(''.join(block))
+
+with open(path, 'w') as f:
+    f.write(''.join(out))
+PYEOF
+    echo "Configured vARIM ($VARIM_INI): callsign, grid, single port, PTT via VOX+rigctld."
+else
+    echo "vARIM config already configured, or vARIM's first run didn't create $VARIM_INI (run 'varim' once manually)."
+fi
+
+section "Installing CommStat (JS8Call situational-awareness companion)"
+# The active/maintained CommStat (github.com/mgochoa57/CommStat, Python +
+# PyQt5, v2.5.0+) - not the older CommStatOne. Its own linuxinstall.sh
+# handles all apt/pip deps; the only gap found running this live
+# 2026-09-13 is that this machine had no python3-pip at all, which its
+# installer needs but doesn't itself install - added explicitly below.
+sudo apt install -y python3-pip
+if [ -d "$HOME/CommStat/.git" ]; then
+    (cd "$HOME/CommStat" && git pull)
+else
+    git clone https://github.com/mgochoa57/CommStat.git "$HOME/CommStat"
+fi
+(cd "$HOME/CommStat" && bash linuxinstall.sh)
+
+# CommStat connects to JS8Call's own TCP API (localhost:2442 by default,
+# matching JS8Call's own TCPServerPort default) rather than a config file
+# of its own for this - JS8Call ships with that API disabled, so enable it.
+JS8CALL_INI="$HOME/.config/JS8Call.ini"
+if [ -f "$JS8CALL_INI" ]; then
+    sed -i \
+        -e 's/^TCPEnabled=.*/TCPEnabled=true/' \
+        -e 's/^AcceptTCPRequests=.*/AcceptTCPRequests=true/' \
+        "$JS8CALL_INI"
+    echo "Enabled JS8Call's TCP API for CommStat ($JS8CALL_INI)."
+else
+    echo "NOTE: $JS8CALL_INI not found yet - run JS8Call once, then re-run this"
+    echo "script (or manually set TCPEnabled=true and AcceptTCPRequests=true)."
+fi
+echo "CommStat itself needs a one-time first-run setup (callsign, groups,"
+echo "optional QRZ key) through its own UI - launch via the Desktop shortcut."
+
 section "Radio profiles + active-radio picker"
 # Multi-radio support: each radio this station uses gets a profile in
 # ~/radio_profiles/<name>.conf (plain KEY="value" bash, sourced directly -
@@ -845,7 +1005,7 @@ section "Start_WSJTX.sh / Start_JS8Call.sh"
 # there yet, and only stops it again on exit if it's the one that started
 # it - if it was already running (shared with something else), it's left
 # alone for whatever else is using it.
-for APP in WSJTX:wsjtx JS8Call:js8call; do
+for APP in WSJTX:wsjtx JS8Call:js8call Fldigi:fldigi; do
     SCRIPT_NAME="${APP%%:*}"
     BIN="${APP##*:}"
 cat > "$HOME/Start_$SCRIPT_NAME.sh" <<EOF
@@ -926,7 +1086,7 @@ $BIN
 EOF
     chmod +x "$HOME/Start_$SCRIPT_NAME.sh"
 done
-echo "Start_WSJTX.sh and Start_JS8Call.sh written (radio-agnostic via active-radio.conf)."
+echo "Start_WSJTX.sh, Start_JS8Call.sh, and Start_Fldigi.sh written (radio-agnostic via active-radio.conf)."
 
 section "stop-pat.sh"
 mkdir -p "$HOME/.local/bin"
@@ -1168,6 +1328,17 @@ Exec=$HOME/Start_JS8Call.sh
 Type=Application
 StartupNotify=true
 Icon=js8call_icon
+Terminal=false
+EOF
+
+cat > "$HOME/Desktop/Fldigi.desktop" <<EOF
+[Desktop Entry]
+Name=Fldigi
+Comment=Starts rigctld first if it isn't already running
+Exec=$HOME/Start_Fldigi.sh
+Type=Application
+StartupNotify=true
+Icon=fldigi
 Terminal=false
 EOF
 

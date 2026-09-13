@@ -27,6 +27,12 @@ reception, and a Wine-based digital-modes stack supporting multiple radios
   **WSJT-X**, and **GridTracker** — all sharing whichever radio is currently
   selected (see [Multi-radio support](#multi-radio-support) below) via a
   single Hamlib `rigctld` instance talking directly to its serial port.
+- **Fldigi, Flmsg, Flamp** (the rest of the Fldigi suite — Flrig is already
+  covered above), **vARIM** (an open-source, Linux-native chat front-end
+  for the VARA HF modem, alongside VarAC), and **CommStat** (a JS8Call
+  situational-awareness companion/dashboard) — the rest of the AmRRON
+  digital-comms toolset. See [AmRRON digital comms](#amrron-digital-comms)
+  below.
 - **A Conky station-status monitor** (top-right of the desktop) showing the
   active radio's name/frequency/mode, whether JS8Call/Pat Winlink are
   running, GPS grid square, and CPU temperature — plus a **10-minute
@@ -40,6 +46,79 @@ reception, and a Wine-based digital-modes stack supporting multiple radios
   tolerance). See "Hard-won lessons" below for the real gpsd/chrony
   integration gotchas this required — the naive setup silently does
   nothing.
+
+## AmRRON digital comms
+
+AmRRON (American Redoubt Radio Operators Network) is a nationwide,
+preparedness-oriented amateur radio network — organized nets, standardized
+procedures, and an emphasis on training across several digital-mode
+"layers" rather than locking into one, since signal conditions, urgency,
+and available hardware all vary. This station's toolset covers all five
+tools from AmRRON's own published priority order (Aug 2023, "Digital modes
+– what order should I prioritize?"): **Fldigi → Flmsg → Flamp → JS8Call →
+CommStat**, plus **VarAC**/**vARIM** (VARA's two front-ends) for
+higher-throughput chat when conditions allow it.
+
+**Compiled 2026-09-13 from amrron.com postings and other public
+documentation — AmRRON's net schedules, frequencies, and tool versions
+change over time. Treat the specifics below as a starting point, not a
+substitute for amrron.com's current SOI (Signal Operating Instructions).**
+
+- **Waterfall placement** — AmRRON convention keeps Fldigi-based traffic
+  around 1000–1500 Hz and JS8Call traffic around 1900–2300 Hz on the same
+  frequency, specifically so they don't collide. Set JS8Call's passband
+  center via its own "Center" field; this isn't something the setup script
+  hardcodes, since it's an operating-time choice per net, not an install
+  default.
+- **JS8Call callsign group** — `@AMRRON` under Callsign Groups (already
+  set in this station's `JS8Call.ini`) lets directed messages/queries
+  reach the whole AmRRON group.
+- **JS8Call netiquette** — during a scheduled digital net, don't transmit:
+  disable Heartbeat/auto-reply and don't manually send SNR queries. Even
+  with waterfall separation, a strong JS8 signal can still interfere with
+  other stations copying Fldigi traffic on the same frequency.
+- **Fldigi rig control** — this station's Fldigi uses the same shared
+  `rigctld` bridge as WSJT-X/JS8Call/Pat (Hamlib → NET rigctl →
+  `127.0.0.1:4532`), *not* flrig (flrig is reserved for VarAC — see
+  [Multi-radio support](#multi-radio-support)), and launches via
+  `Start_Fldigi.sh`/the Fldigi Desktop shortcut, which starts `rigctld`
+  first if nothing's already using it — same as WSJT-X/JS8Call. This
+  config is applied automatically by the setup script, **not** through
+  Fldigi's own Configure dialog: its "Use Hamlib" checkbox has a real bug
+  (confirmed 2026-09-13 — clicking it, including a pixel-precise
+  synthetic click that ruled out a hit-testing issue, never actually
+  toggles it), and the first-run wizard's callsign field silently failed
+  to save too. The setup script patches `~/.fldigi/fldigi_def.xml`
+  directly instead (`CHKUSEHAMLIBIS`, `HAMRIGDEVICE`, `HAMRIGMODEL`,
+  `MYCALL`, `RECEIVERSID` for RX RSID so incoming Flamp transfers
+  auto-detect) — but that file only exists after Fldigi has been launched
+  and cleanly closed once (File → Exit; killing it early writes nothing
+  at all), so the very first time, launch Fldigi, click through the
+  wizard with any values, close it normally, then re-run the setup
+  script to apply the real config.
+- **vARIM vs. VarAC** — two different front-ends for the same underlying
+  VARA HF modem, not competing modes: VarAC is Windows-polished (via
+  Wine, already set up) with a broader feature set (HF/FM/satellite);
+  vARIM is open-source and Linux-native, lighter-weight, HF-only. Both can
+  run against the same VARA HF modem instance. vARIM's config
+  (`~/varim/varim.ini`) is set up by the setup script with this station's
+  callsign/grid and PTT via the shared `rigctld` bridge (port 4532) —
+  vARIM's own man page (`man 5 varim`) doesn't fully clarify whether
+  `rigctld`-based PTT and the separate `ptt-mode` setting are independent
+  or one overrides the other, so verify PTT actually keys the radio on
+  the first real transmission rather than assuming.
+- **CommStat** — the modern, actively-developed CommStat
+  ([mgochoa57/CommStat](https://github.com/mgochoa57/CommStat), not the
+  older CommStatOne), a situational-awareness dashboard that parses
+  JS8Call's STATREP traffic and plots reporting stations on a map. It
+  connects to JS8Call's own TCP API (`localhost:2442`), which the setup
+  script enables (`TCPEnabled`/`AcceptTCPRequests` in `JS8Call.ini` —
+  disabled by default). CommStat's own callsign/groups/QRZ-key settings
+  need a one-time first-run setup through its own UI (Desktop shortcut) —
+  not something safe to blind-patch into a config file.
+- **Receive-only, no license needed** — JS8Call and CommStat both
+  explicitly support running receive-only for situational awareness
+  without being a licensed operator (a receiver or SDR is enough).
 
 ## Multi-radio support
 
@@ -84,6 +163,57 @@ and `g90.conf` in this repo for real, working examples. Fields:
 
 ### Hard-won lessons (so you don't have to relearn them)
 
+- **CommStat's own `linuxinstall.sh` needs `python3-pip`, which it doesn't
+  install itself and this machine didn't have.** Confirmed 2026-09-13: its
+  Python installer (`install.py`) calls `pip`, and without the package at
+  all fails with a generic-looking `ERROR: Could not install 'branca...'`
+  that gives no hint the real problem is a missing `pip` binary entirely
+  (`install.py` swallows the real subprocess stderr). The setup script
+  installs `python3-pip` explicitly before running CommStat's installer.
+- **Fldigi's first-run Configuration Wizard cannot be scripted through, and
+  its own "Use Hamlib" checkbox is genuinely broken — the fix is to patch
+  the XML config directly, not fight the GUI.** Confirmed 2026-09-13,
+  found while actually setting up rig control on real hardware:
+  1. Launching Fldigi for the first time opens a genuinely modal dialog
+     (window title literally "Fldigi configuration wizard"), and no
+     `fldigi_def.xml` gets written until it's clicked through — not even a
+     graceful `wmctrl -c` window-close request (as opposed to a raw
+     `SIGTERM`/`timeout` kill) produces a saved config, and the file only
+     gets written on a genuinely clean exit (File → Exit) even from the
+     main window afterward.
+  2. Within that wizard, the "Use Hamlib" checkbox visually accepts
+     clicks (it gains keyboard focus, shown by a dotted focus rectangle)
+     but its checked state never actually changes — confirmed with a
+     precision `python3-xlib` `XTest` synthetic click computed from the
+     checkbox's exact on-screen pixel position (via `xwininfo` for the
+     window's absolute origin, **not** `wmctrl -l -G` — see the
+     `wmctrl` position caveat elsewhere in this file), which ruled out a
+     simple click-coordinate/hit-testing miss on the user's end. This
+     looks like a genuine bug in this Fldigi build (4.2.03), not user
+     error.
+  3. Separately, the wizard's callsign (`MYCALL`) field also silently
+     failed to save, while `MYNAME`/`MYQTH`/`MYLOC` on the same page saved
+     correctly — an inconsistent, narrower bug than #2, not the same
+     root cause.
+  4. The actual, reliable fix: complete the wizard once with throwaway
+     values (finally makes `fldigi_def.xml` exist) and close Fldigi
+     cleanly, then patch the real XML keys directly —
+     `CHKUSEHAMLIBIS` (the broken checkbox, `0`→`1`), `HAMRIGDEVICE`
+     (→ `127.0.0.1:4532`), `HAMRIGMODEL` (`2` = Hamlib's own "NET
+     rigctl" model ID — already correct by default, confirmed via
+     Hamlib's own model numbering, not guessed), `MYCALL`, and
+     `RECEIVERSID` (RX RSID, `0`→`1`, for Flamp auto-detect). The setup
+     script does this automatically once the file exists; see
+     [AmRRON digital comms](#amrron-digital-comms).
+  5. `rigctld` itself still needs to actually be running for any of this
+     to matter — it's not a standalone daemon this project starts at
+     boot, only on-demand by whichever app needs it (WSJT-X/JS8Call/Pat
+     each start it themselves if nothing's listening on port 4532 yet).
+     Fldigi now gets the same treatment via `Start_Fldigi.sh`/its Desktop
+     shortcut — launching plain `fldigi` from an application menu entry
+     that bypasses that wrapper will show the wrong frequency with a
+     `Connection refused` in Fldigi's own console output, not because the
+     Hamlib config above is wrong.
 - **After a reboot, re-run Select Radio even if Conky already shows the
   right radio.** Confirmed by the user 2026-09-10: skipping this and
   opening VarAC directly after a reboot makes flrig throw an error, even
