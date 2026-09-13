@@ -33,6 +33,9 @@ reception, and a Wine-based digital-modes stack supporting multiple radios
   situational-awareness companion/dashboard) — the rest of the AmRRON
   digital-comms toolset. See [AmRRON digital comms](#amrron-digital-comms)
   below.
+- **VOACAP GUI** (`voacapgui`, from the PythonProp project) — HF
+  propagation prediction, built on `voacapl` (the VOACAP engine ported to
+  Linux). Both built from source (no apt package on this Ubuntu base).
 - **A Conky station-status monitor** (top-right of the desktop) showing the
   active radio's name/frequency/mode, whether JS8Call/Pat Winlink are
   running, GPS grid square, and CPU temperature — plus a **10-minute
@@ -163,6 +166,16 @@ and `g90.conf` in this repo for real, working examples. Fields:
 
 ### Hard-won lessons (so you don't have to relearn them)
 
+- **`voacapl`'s checked-in generated autotools files don't match this
+  system's autoconf/automake versions — its own README's documented build
+  steps fail with a real error, not a warning.** Confirmed 2026-09-13:
+  `automake --add-missing && autoreconf` (as documented) produces
+  `configure.ac:3: error: version mismatch. This is Automake 1.16.5, but
+  the definition used by this AM_INIT_AUTOMAKE comes from Automake
+  1.15.1` — the repo's committed `aclocal.m4` was generated with an older
+  toolchain. Fixed with `autoreconf --install --force`, which fully
+  regenerates `aclocal.m4`/`configure`/`Makefile.in` from the currently
+  installed autotools instead of trying to patch around the mismatch.
 - **CommStat's own `linuxinstall.sh` needs `python3-pip`, which it doesn't
   install itself and this machine didn't have.** Confirmed 2026-09-13: its
   Python installer (`install.py`) calls `pip`, and without the package at

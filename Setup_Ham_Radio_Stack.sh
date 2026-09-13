@@ -762,6 +762,66 @@ fi
 echo "CommStat itself needs a one-time first-run setup (callsign, groups,"
 echo "optional QRZ key) through its own UI - launch via the Desktop shortcut."
 
+section "Installing VOACAP GUI (HF propagation prediction)"
+# voacapl (jawatson/voacapl) is the actual VOACAP engine ported to Linux;
+# PythonProp (jawatson/pythonprop, same author) is its GTK3 GUI front-end
+# ('voacapgui'). Neither has an apt package on this Ubuntu base. Build-only
+# gotcha confirmed 2026-09-13: voacapl's checked-in generated build files
+# (aclocal.m4 etc.) were made with an older autoconf/automake than what
+# this system has, causing a hard "version mismatch" error from the
+# README's own documented `automake --add-missing && autoreconf` steps -
+# `autoreconf --install --force` (regenerating everything, not just
+# patching what's missing) is what actually works.
+sudo apt install -y gfortran automake autoconf build-essential \
+    python3-matplotlib python3-cartopy python3-scipy yelp-tools \
+    python3-gi gir1.2-gtk-3.0
+if ! command -v voacapl &>/dev/null; then
+    VOACAPL_TMP=$(mktemp -d)
+    git clone https://github.com/jawatson/voacapl.git "$VOACAPL_TMP/voacapl"
+    (
+        cd "$VOACAPL_TMP/voacapl"
+        autoreconf --install --force
+        ./configure
+        make
+        sudo make install
+        sudo ldconfig
+        makeitshfbc
+    )
+    rm -rf "$VOACAPL_TMP"
+    echo "voacapl installed: $(which voacapl)"
+else
+    echo "voacapl already installed: $(which voacapl)"
+fi
+if ! command -v voacapgui &>/dev/null; then
+    PYTHONPROP_TMP=$(mktemp -d)
+    git clone https://github.com/jawatson/pythonprop.git "$PYTHONPROP_TMP/pythonprop"
+    (
+        cd "$PYTHONPROP_TMP/pythonprop"
+        ./autogen.sh
+        ./configure
+        make
+        sudo make install
+    )
+    rm -rf "$PYTHONPROP_TMP"
+    echo "PythonProp installed: $(which voacapgui)"
+else
+    echo "PythonProp already installed: $(which voacapgui)"
+fi
+# The installer's own .desktop file lands in /usr/local/share/applications
+# (correctly on $XDG_DATA_DIRS - confirmed live), but the desktop menu's
+# own cache can lag until next login. A Desktop shortcut sidesteps that.
+cat > "$HOME/Desktop/VOACAP.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Exec=voacapgui
+Name=VOACAP GUI
+Comment=HF propagation prediction (PythonProp/voacapl)
+Categories=Science;HamRadio
+Icon=pythonprop
+Terminal=false
+EOF
+chmod +x "$HOME/Desktop/VOACAP.desktop"
+
 section "Radio profiles + active-radio picker"
 # Multi-radio support: each radio this station uses gets a profile in
 # ~/radio_profiles/<name>.conf (plain KEY="value" bash, sourced directly -
