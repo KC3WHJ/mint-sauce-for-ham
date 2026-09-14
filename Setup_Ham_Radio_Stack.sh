@@ -123,7 +123,12 @@ fi
 
 section "Setting readsb station location"
 if [ -n "$ADSB_LAT" ] && [ -n "$ADSB_LON" ]; then
-    sudo sed -i -E 's/ *--lat [^ ]+ --lon [^ ]+//' /etc/default/readsb
+    # [^ "]+ (not just [^ ]+) - the longitude value butts directly against the
+    # closing quote with no space (e.g. --lon -74.98669"), so a plain
+    # non-space match greedily eats the quote too, corrupting
+    # RECEIVER_OPTIONS into an unterminated string on every re-run and
+    # crash-looping readsb (confirmed 2026-09-14, restart counter 100+).
+    sudo sed -i -E 's/ *--lat [^ "]+ --lon [^ "]+//' /etc/default/readsb
     sudo sed -i "s|^RECEIVER_OPTIONS=\"\(.*\)\"|RECEIVER_OPTIONS=\"\1 --lat $ADSB_LAT --lon $ADSB_LON\"|" /etc/default/readsb
     echo "Location set to $ADSB_LAT, $ADSB_LON."
 else
