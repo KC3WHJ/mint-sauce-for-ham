@@ -590,6 +590,25 @@ already done before acting on it.
 - flrig is only used for VarAC's PTT/CAT path — WSJT-X, JS8Call, and Pat
   all use direct `rigctld` instead, since flrig was previously found to be
   "a recurring, hard-to-diagnose source of hangs and crashes" for those.
+- **The first time flrig is used with a given rig on a given machine, it
+  needs one manual one-time setup step** - confirmed 2026-09-15, IC-7300 on
+  a second machine. flrig stores each rig's settings (serial port, meter
+  calibration, and more) in its own file (`~/.flrig/<FLRIG_NAME>.prefs`,
+  e.g. `IC-7300.prefs`) that only flrig itself creates, the first time you
+  configure that rig through its own GUI (Config → Setup → Transceiver -
+  select the rig, set the serial port shown in `radio_profiles/*.conf`'s
+  `SERIAL_DEVICE` and the baud rate, then close/apply). Until that file
+  exists, `Start_Flrig_Radio.sh` has nothing to force-correct (see the
+  "flrig can silently reset its own serial port" note above) and prints a
+  note saying so, but still launches flrig anyway - which then fails with
+  "Transceiver not responding" since no serial port is set for that rig at
+  all. After this one-time step, the existing force-set logic keeps it
+  correct automatically on every future launch, same as every other radio.
+  This is why `IC-705.prefs`/`Xiegu-G90.prefs` already existing on a
+  machine (from this exact step having been done for those rigs before)
+  can make it easy to forget this is a real, required step for the *next*
+  new rig added to a machine - it's not something `select-radio.sh` or any
+  other script currently automates away.
 - The script sets VarAC's rig control to flrig, and your callsign/grid,
   automatically (`VarAC.ini`'s `RigPTTControlType`/`RigFreqControlType`,
   `Mycall`, `MyLocator`) — same "force a first run to generate the config
