@@ -6,6 +6,11 @@ reception, and a Wine-based digital-modes stack supporting multiple radios
 (currently IC-705, IC-7300, FT-891, TX-500 MP, and G-90 — see
 [Multi-radio support](#multi-radio-support)).
 
+**Already set up and just want to know how to use everything?** See
+[USER_GUIDE.md](USER_GUIDE.md) — what each application does and how to
+run it day to day. This README covers installation, configuration, and
+troubleshooting internals instead.
+
 ## What it installs
 
 - **RTL-SDR + readsb + tar1090** — ADS-B aircraft tracking with a live map
