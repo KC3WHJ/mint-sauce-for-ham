@@ -668,6 +668,27 @@ already done before acting on it.
   the key line *and* any immediately-following `+` continuation lines
   before writing a single correct line back, instead of assuming the
   value is always exactly one physical line.
+- **`radio_profiles/*.conf` (and `conky/id-timer.py`) are deployed with
+  `cp -n` (no-clobber), which protects real customizations from being
+  overwritten but also means a placeholder file deployed before a profile
+  was ever filled in and verified upstream stays a placeholder forever** -
+  even after `git pull` brings in the real, working version, since
+  `active-radio.conf` symlinks to the *deployed* copy in `~/radio_profiles/`,
+  not the repo's copy. Confirmed 2026-09-15 (IC-7300's first real
+  end-to-end test on a second machine, the laptop): `~/radio_profiles/ic7300.conf`
+  was still the literal `SERIAL_DEVICE="/dev/serial/by-id/CHANGE_ME"`
+  placeholder from before the profile existed in verified form, while the
+  repo's copy had long since been filled in and confirmed working. Symptom
+  was misleading - rigctld/flrig failed silently (Pat Winlink's progress
+  spinner did nothing, flrig showed no frequency), nothing pointed at a
+  stale config as the cause. No automated fix for this one (unlike the two
+  above) since there's no way to tell "still a placeholder, safe to
+  overwrite" apart from "genuinely customized, don't touch" without some
+  kind of marker - if you add a new radio profile to a machine that's
+  never used it before, or pull a `git` update that meaningfully changes
+  an existing profile, diff `~/radio_profiles/<radio>.conf` against
+  `mint-sauce-for-ham/radio_profiles/<radio>.conf` and copy over by hand
+  if they differ.
 
 ## Fresh-install verification
 
