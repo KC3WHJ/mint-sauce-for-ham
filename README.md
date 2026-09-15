@@ -503,12 +503,15 @@ and `g90.conf` in this repo for real, working examples. Fields:
 ## Memory channel tools
 
 `channel-tools/` is a separate, self-contained toolkit for programming
-memory channels over CI-V and browsing them from a desktop app —
-independent of the main setup script above. Radio-neutral: it reads
-whichever radio is active in `radio_profiles/active-radio.conf`, same as
-everything else in this project. Works with the IC-705 (all 16 channel
-groups, including VHF/UHF repeaters) and the IC-7300 (the 4 HF-only
-sections, since it has no VHF/UHF or memory-group concept at all). It can
+memory channels and browsing them from a desktop app — independent of the
+main setup script above. **Icom radios only**: it's built entirely on
+Icom's CI-V protocol, so it does *not* work with the FT-891, G-90, or
+TX-500 MP (fails with a clear error rather than doing something wrong).
+Within that scope it reads whichever radio is active in
+`radio_profiles/active-radio.conf`, same as everything else in this
+project — works with the IC-705 (all 16 channel groups, including VHF/UHF
+repeaters) and the IC-7300 (the 4 HF-only sections, since it has no
+VHF/UHF or memory-group concept at all). It can
 turn a RAINWorks-style "Standalone Analog Programming Guide" PDF into
 memory channels automatically, or you can build/edit the channel CSVs by
 hand. See [`channel-tools/README.md`](channel-tools/README.md) for the

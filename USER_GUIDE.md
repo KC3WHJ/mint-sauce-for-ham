@@ -170,6 +170,11 @@ or you're running this on something low-power like a Raspberry Pi.
 
 ### Channel Picker — browse and jump to programmed memory channels
 
+**Icom radios only (IC-705, IC-7300)** — it does not work with the FT-891,
+G-90, or TX-500 MP. If one of those is the active radio, it fails with a
+clear "no channel map" error rather than attempting anything; this is
+expected, not a bug — see `channel-tools/README.md` for why.
+
 A desktop app listing every channel programmed into your radio's memory,
 organized by group, with a one-click "go to this channel" button — much
 faster than scrolling through memories on the radio's own small screen.

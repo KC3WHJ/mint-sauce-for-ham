@@ -1,12 +1,23 @@
 # Channel tools
 
-Turns a RAINWorks-style "Standalone Analog Programming Guide" PDF into memory
-channels on an Icom radio, and gives you a desktop app to browse/jump to
-them by name or group. Radio-neutral: everything here reads whichever radio
-is active in `~/radio_profiles/active-radio.conf` (the same file every other
-launcher in this project uses), so switching radios via Select Radio is all
-it takes to point this toolkit at a different rig. Currently used with the
-IC-705 and IC-7300 — see "Adding a radio" below for what a new one needs.
+**Icom radios only.** Turns a RAINWorks-style "Standalone Analog
+Programming Guide" PDF into memory channels, and gives you a desktop app
+to browse/jump to them by name or group — but the whole mechanism (memory
+group/channel selection, frequency/mode encoding, everything in
+`program_channels.py`) is built entirely on Icom's **CI-V** protocol.
+**It does not work with the FT-891, G-90, or TX-500 MP** (or any other
+non-Icom radio this project supports elsewhere) — those speak entirely
+different CAT protocols with no CI-V equivalent implemented here. Trying
+to use it with one of those active radios fails with a clear
+"No channel map for `<radio>`" error rather than attempting anything and
+getting it wrong.
+
+Within that Icom-only scope, it reads whichever radio is active in
+`~/radio_profiles/active-radio.conf` (the same file every other launcher
+in this project uses) — currently wired up for the IC-705 and IC-7300.
+See "Adding a radio" below for what a new *Icom* radio needs; adding a
+non-Icom radio would mean building a second protocol backend from
+scratch, not just a new config entry.
 
 ## Files
 
