@@ -124,7 +124,7 @@ fi
 section "Setting readsb station location"
 if [ -n "$ADSB_LAT" ] && [ -n "$ADSB_LON" ]; then
     # [^ "]+ (not just [^ ]+) - the longitude value butts directly against the
-    # closing quote with no space (e.g. --lon -74.98669"), so a plain
+    # closing quote with no space (e.g. --lon -XX.XXXXX"), so a plain
     # non-space match greedily eats the quote too, corrupting
     # RECEIVER_OPTIONS into an unterminated string on every re-run and
     # crash-looping readsb (confirmed 2026-09-14, restart counter 100+).
