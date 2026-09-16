@@ -184,9 +184,11 @@ from the radio's own memory content.
 ## Getting a PDF to work from
 
 This toolkit doesn't include a real "Standalone Analog Programming Guide" —
-that's a commercial product (order it from RAINWorks LLC, or use any
-similarly-tabulated repeater guide from another source; the extractor works
-on any PDF matching the layout described below, not just RAINWorks'). What
+that's a commercial product. Get one for your own area directly from
+RAINWorks LLC at <https://www.rainworksusa.com/standalone-programming-pdf>,
+or use any similarly-tabulated repeater guide from another source; the
+extractor works on any PDF matching the layout described below, not just
+RAINWorks'. What
 *is* included is `sample_guide.pdf` (source: `sample_guide.html`) — a small,
 entirely fictional 10-channel example with the same table structure, purely
 so you can test-drive `extract_pdf.py` without buying anything first:
