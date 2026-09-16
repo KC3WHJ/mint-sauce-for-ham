@@ -2,8 +2,11 @@
 
 Turns a RAINWorks-style "Standalone Analog Programming Guide" PDF into
 memory channels, and gives you a desktop app to browse/jump to them by
-name or group. **Two protocol backends, three radios total — not every
-radio this project supports.** `program_channels.py` speaks either Icom's
+name or group. Get your own area's guide directly from RAINWorks LLC at
+<https://www.rainworksusa.com/standalone-programming-pdf> (see "Getting
+a PDF to work from" below for details). **Two protocol backends, three
+radios total — not every radio this project supports.**
+`program_channels.py` speaks either Icom's
 binary **CI-V** protocol (`Radio` class — IC-705, IC-7300) or Yaesu's
 plain-ASCII **CAT** protocol (`YaesuFT891Radio` class — FT-891), chosen
 per-radio via `PROTOCOL` in `radio_profiles/*.conf` (`"civ"` or
