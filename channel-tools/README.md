@@ -310,22 +310,29 @@ tree both pointed at real CI-V compatibility - which is true for basic
 rig control, just not for memory programming.
 
 **TX-500 MP (Lab599) - a genuine third protocol backend, comparable in
-scope to today's FT-891 work.** Uses **Kenwood TS-2000 CAT emulation**
-(`tx500mp.conf`'s own existing note: "MENU 36 CAT PROTOCOL = TS2000",
-confirmed live via rigctld reading a Kenwood `ID019` identification
-response) - not Icom CI-V, not Yaesu CAT. Kenwood's CAT protocol is also
-plain ASCII with `MR`/`MW`-style memory commands (confirmed to exist,
-per the TS-2000's own PC Control Command Tables), but unlike the FT-891
-section above, the exact field-by-field format hasn't been confirmed
-here yet - the usual online copies of the TS-2000 manual were garbled/
-inaccessible when checked 2026-09-15. Before writing real code: get a
-clean copy of Kenwood's official TS-2000 PC Control Command Reference
-(the instruction manual's "PC Control Command Tables" section) and
-cross-check the memory command formats the same way the FT-891's `FA`
-worked example verified the frequency field width there - don't
-hand-derive from a possibly-garbled table extraction without a concrete
-worked example to check against, that's exactly what cost the most time
-during the FT-891 implementation.
+scope to today's FT-891 work.** Originally set up using **Kenwood
+TS-2000 CAT emulation** (confirmed live 2026-09-15 via rigctld reading a
+Kenwood `ID019` identification response) - not Icom CI-V, not Yaesu CAT.
+**Switched 2026-09-16** to the radio's other CAT option, its **native
+Lab599 protocol** (`tx500mp.conf`'s `MENU 36 CAT PROTOCOL` is now
+`Lab599`, not `TS2000` - see that profile's `FLRIG_NAME` comment for
+why: flrig's TS-2000 emulation path had a real, confirmed DIG->USB mode-
+reversion bug that the native Lab599 driver didn't have). This means any
+future channel-programming work here should target the **native Lab599
+protocol**, not Kenwood TS-2000 - all of the Kenwood-specific research
+below (PC Control Command Tables, `MR`/`MW`-style commands) is now
+**moot** for that reason, not because it was wrong. The native Lab599
+protocol's command format hasn't been researched at all yet - that's the
+actual starting point now, not a continuation of the Kenwood work.
+Before writing real code: find Lab599's own CAT/CI-V protocol reference
+for the TX-500 (not the TS-2000's), confirm whether it exposes any
+memory-channel commands at all (the G-90's experience this session is a
+reminder that basic CAT support doesn't guarantee memory support), and
+cross-check any field format against a real worked example the same way
+the FT-891's `FA` worked example verified the frequency field width
+there - don't hand-derive from a possibly-garbled table extraction
+without a concrete worked example to check against, that's exactly what
+cost the most time during the FT-891 implementation.
 
 Neither is a quick follow-on to the FT-891 work: the G-90 is now
 confirmed blocked at the firmware level (not a code problem to solve),
