@@ -3,8 +3,11 @@
 # profile in ~/radio_profiles/*.conf, lets you explicitly choose one (rather
 # than guessing from what's plugged in, which breaks if more than one radio
 # is connected at once), and points radio_profiles/active-radio.conf at it.
-# Start_Flrig_Radio.sh, sync-radio-audio.sh, and ham-radio-name.sh all just
-# read that one file -- nothing else needs to change when you add a radio.
+# Also runs sync-radio-audio.sh immediately below, so VARA/WSJT-X/JS8Call
+# are already correct before you launch anything. Every other script here
+# (Start_Flrig_Radio.sh, Start_Pat.sh, Start_WSJTX.sh, ham-radio-name.sh,
+# etc.) just reads that one active-radio.conf file too -- nothing else
+# needs to change when you add a radio.
 set -e
 
 PROFILES_DIR="$HOME/radio_profiles"
@@ -40,6 +43,17 @@ source "$ACTIVE_LINK"
 
 echo "Active radio set to: $RIG_NAME"
 echo
+
+# Sync VARA HF/FM and WSJT-X/JS8Call's audio device settings right now, so
+# every app is already correct the moment you double-click its icon -
+# don't rely on whichever launcher you happen to run first to do this (see
+# sync-radio-audio.sh's own header for the "close VARA/WSJT-X/JS8Call
+# first" caveat - if any of them are open right now, close and reopen
+# after this to pick up the change).
+if [ -x "$HOME/.local/bin/sync-radio-audio.sh" ]; then
+    "$HOME/.local/bin/sync-radio-audio.sh" || true
+    echo
+fi
 
 if [ -n "$SERIAL_DEVICE" ] && [ ! -e "$SERIAL_DEVICE" ]; then
     echo "NOTE: $SERIAL_DEVICE doesn't exist yet -- plug in/power on the radio."

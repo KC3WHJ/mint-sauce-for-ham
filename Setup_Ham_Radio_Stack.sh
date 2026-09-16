@@ -40,9 +40,10 @@
 #   - The ADS-B Exchange feed installer is also interactive (it uses
 #     whiptail dialogs to ask for your station's lat/lon/altitude and,
 #     optionally, your ADS-B Exchange account UUID).
-#   - Fill in WINLINK_PASSWORD and VARA_REG_CODE in config.sh before running
-#     the later sections that need them. Left blank, those sections are
-#     skipped with a reminder printed at the end.
+#   - First run with no config.sh prompts interactively for callsign, grid,
+#     Winlink password, and VARA registration - see CONFIGURATION below.
+#     Leaving WINLINK_PASSWORD/VARA_REG_CODE blank there is fine; those
+#     sections are just skipped with a reminder printed at the end.
 #   - IC705_SERIAL_ID is specific to one physical radio (its USB serial
 #     number) - the script prints what it finds if the placeholder doesn't
 #     match anything plugged in.
@@ -56,9 +57,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$SCRIPT_DIR/config.sh" ]; then
     source "$SCRIPT_DIR/config.sh"
 else
-    echo "No config.sh found next to this script."
-    echo "Copy config.sh.example to config.sh, edit your callsign/grid/radio serial ID/etc, and re-run."
-    exit 1
+    echo "No config.sh found next to this script - first run on this machine."
+    echo "Answer a few questions to generate one (everything else in"
+    echo "config.sh.example gets sensible defaults you can hand-edit later -"
+    echo "AUDIO_DEVICE, IC705_SERIAL_ID, ADS-B location, etc)."
+    echo
+    read -p "Callsign: " ANS_CALLSIGN
+    read -p "Grid square (e.g. FN20mb): " ANS_GRID
+    read -p "Winlink.org account password (blank to skip/fill in later): " ANS_WINLINK_PASSWORD
+    read -p "VARA registration code (blank if unregistered/trial): " ANS_VARA_REG_CODE
+    read -p "Callsign your VARA registration covers [$ANS_CALLSIGN]: " ANS_VARA_CALLSIGN_LICENSE
+    ANS_VARA_CALLSIGN_LICENSE="${ANS_VARA_CALLSIGN_LICENSE:-$ANS_CALLSIGN}"
+
+    cp "$SCRIPT_DIR/config.sh.example" "$SCRIPT_DIR/config.sh"
+    sed -i \
+        -e "s/^CALLSIGN=.*/CALLSIGN=\"$ANS_CALLSIGN\"/" \
+        -e "s/^GRID=.*/GRID=\"$ANS_GRID\"/" \
+        -e "s/^WINLINK_PASSWORD=.*/WINLINK_PASSWORD=\"$ANS_WINLINK_PASSWORD\"/" \
+        -e "s/^VARA_REG_CODE=.*/VARA_REG_CODE=\"$ANS_VARA_REG_CODE\"/" \
+        -e "s/^VARA_CALLSIGN_LICENSE=.*/VARA_CALLSIGN_LICENSE=\"$ANS_VARA_CALLSIGN_LICENSE\"/" \
+        "$SCRIPT_DIR/config.sh"
+    echo
+    echo "Wrote $SCRIPT_DIR/config.sh. Review it (especially AUDIO_DEVICE and"
+    echo "IC705_SERIAL_ID under the IC-705/Wine section) before continuing, or"
+    echo "just re-run this script - it picks up config.sh automatically now."
+    source "$SCRIPT_DIR/config.sh"
 fi
 # ======================================================
 
@@ -942,6 +965,10 @@ fi
 # this indefinitely with no way to recover short of killing the script.
 timeout 5 rigctl -m 2 -r localhost:4532 M PKTUSB 2400 > /dev/null 2>&1 || true
 
+if [ -x "\$HOME/.local/bin/sync-radio-audio.sh" ]; then
+    "\$HOME/.local/bin/sync-radio-audio.sh" || true
+fi
+
 if pgrep -f "VARAFM.exe" > /dev/null; then
     pkill -f "VARAFM.exe"
     sleep 2
@@ -1029,6 +1056,10 @@ fi
 # the same reason as the HF version above - a wedged rigctld shouldn't hang
 # this indefinitely.
 timeout 5 rigctl -m 2 -r localhost:4532 M FM 0 > /dev/null 2>&1 || true
+
+if [ -x "\$HOME/.local/bin/sync-radio-audio.sh" ]; then
+    "\$HOME/.local/bin/sync-radio-audio.sh" || true
+fi
 
 if pgrep -f "VARA.exe" > /dev/null; then
     pkill -f "VARA.exe"
@@ -1145,6 +1176,10 @@ if ! rigctld_responsive; then
         echo "Double check SERIAL_DEVICE/BAUD_RATE in \$ACTIVE against the radio."
         exit 1
     fi
+fi
+
+if [ -x "\$HOME/.local/bin/sync-radio-audio.sh" ]; then
+    "\$HOME/.local/bin/sync-radio-audio.sh" || true
 fi
 
 $BIN

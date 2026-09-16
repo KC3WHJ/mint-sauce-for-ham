@@ -543,10 +543,16 @@ visible effect — there's no CI-V command to force that).
 ```bash
 git clone https://github.com/KC3WHJ/mint-sauce-for-ham.git
 cd mint-sauce-for-ham
-cp config.sh.example config.sh
-nano config.sh   # fill in your callsign, grid square, radio serial ID, etc.
 ./Setup_Ham_Radio_Stack.sh
 ```
+
+No `config.sh` yet? The script notices and interactively asks for your
+callsign, grid square, Winlink password, and VARA registration info, then
+writes `config.sh` for you — review it afterward (especially
+`AUDIO_DEVICE`/`IC705_SERIAL_ID`, which are hardware-specific and don't have
+a good interactive default) before it's used for real. Prefer editing a file
+by hand instead? `cp config.sh.example config.sh && nano config.sh` still
+works exactly as before — the script just uses whatever's there.
 
 `config.sh` is git-ignored — your callsign, grid square, radio serial ID,
 Winlink password, and VARA registration code never end up in version
