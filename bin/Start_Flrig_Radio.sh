@@ -81,6 +81,59 @@ else
     echo "script will keep it pointed at the right device from then on."
 fi
 
+# Same self-reverting problem as xcvr_serial_port above, confirmed
+# 2026-09-16 for the TX-500 MP: flrig writes restore_mode back to 1 on
+# its own on exit no matter what a one-time edit sets it to, and with it
+# on, flrig pushes its own remembered mode_A back to the radio on every
+# connect - for the TX-500 MP this meant every launch silently kicked the
+# radio out of DIG into USB, requiring a manual fix on the radio each
+# time. Force it off on every launch instead of trusting a saved value,
+# same reasoning as above. Opt-in per profile (FLRIG_DISABLE_RESTORE_MODE)
+# since this hasn't been confirmed as an issue for other radios here.
+if [ "$FLRIG_DISABLE_RESTORE_MODE" = "true" ] && [ -f "$RIG_PREFS" ] && grep -q "^restore_mode:" "$RIG_PREFS"; then
+    sed -i "s/^restore_mode:.*/restore_mode:0/" "$RIG_PREFS"
+fi
+
+# Confirmed 2026-09-16 via ~/.flrig/trace.txt: the TX-500 MP's Kenwood
+# TS-2000 CAT emulation over its 9600-baud DigiRig link can't keep up
+# with flrig's default zero-delay polling of every parameter (S-meter,
+# mode, bandwidth, volume, notch, squelch, RF gain, SWR, ALC, split,
+# noise, tuner, PTT, etc. all polled every cycle) - commands and
+# responses were visibly interleaved/mismatched in the trace (e.g. `S:
+# PA; R: RL050`), which plausibly caused flrig to misread the radio's
+# actual mode and push a wrong value back (see restore_mode fix above -
+# that alone didn't stop the DIG->USB kick). Force a write delay so the
+# radio has time to reply before the next command fires.
+if [ -n "$FLRIG_SERIAL_WRITE_DELAY_MS" ] && [ -f "$RIG_PREFS" ]; then
+    sed -i \
+        -e "s/^serial_write_delay:.*/serial_write_delay:${FLRIG_SERIAL_WRITE_DELAY_MS}/" \
+        -e "s/^serial_post_write_delay:.*/serial_post_write_delay:${FLRIG_SERIAL_WRITE_DELAY_MS}/" \
+        "$RIG_PREFS"
+fi
+# The write delay above eats into serial_timeout's own budget for the
+# radio's actual response - confirmed 2026-09-16 the default 50ms timeout
+# wasn't enough headroom once 40ms (write+post-write) of delay was added,
+# causing flrig to report "Transceiver Not Responding" even though the
+# radio and port were both genuinely fine (confirmed via a direct rigctl
+# test at the same time). Give it real headroom instead.
+if [ -n "$FLRIG_SERIAL_TIMEOUT_MS" ] && [ -f "$RIG_PREFS" ]; then
+    sed -i "s/^serial_timeout:.*/serial_timeout:${FLRIG_SERIAL_TIMEOUT_MS}/" "$RIG_PREFS"
+fi
+
+# Confirmed 2026-09-16: neither restore_mode nor the timing fixes above
+# stopped the TX-500 MP silently dropping out of DIG into USB while
+# connected to flrig - and the trace log conclusively showed flrig never
+# sends an actual mode-SET command (only plain "MD;" reads, repeated
+# every ~1.7s). A single manual read didn't flip it; sustained repeated
+# polling over ~20s did. This points at a TX-500 MP firmware quirk in its
+# Kenwood TS-2000 emulation - being repeatedly polled for mode seems to
+# itself cause it to drop the DIG flag - not something fixable by
+# changing what flrig sends. Testable/working around it by just not
+# polling mode at all.
+if [ "$FLRIG_DISABLE_MODE_POLL" = "true" ] && [ -f "$RIG_PREFS" ]; then
+    sed -i "s/^poll_mode:.*/poll_mode:0/" "$RIG_PREFS"
+fi
+
 echo "Active radio: $RIG_NAME -- pre-selected in $FLRIG_BIN (config: $FLRIG_CONFIG_DIR)."
 
 if [ -x "$HOME/.local/bin/sync-radio-audio.sh" ]; then
