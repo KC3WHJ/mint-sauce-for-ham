@@ -12,16 +12,43 @@ Lab599 respectively — neither CI-V nor Yaesu CAT) — trying to use it with
 one of those active radios fails with a clear "No channel map for
 `<radio>`" error rather than attempting anything and getting it wrong.
 
-The TX-500 MP does have a real, working path to get channels programmed
-today, just not through `program_channels.py`/Channel Picker directly:
-`export_tx500mp_csv.py` converts a `channels_*.json` file into the CSV
-format Lab599's own **TRX Remote** Android app imports (`Channel,Name,
-Frequency,Mode,Filter,Power,ToneMode,ToneFreq,Offset`) - run it, get the
-CSV onto the phone running TRX Remote, and import it there. Filter and
-Power aren't tracked by Channel Picker's own channel data at all, so
-they're filled in with a documented default (FIL2 for CW, FIL1
-otherwise; flat 10W) rather than left to guesswork per-channel - see the
-script's own docstring.
+The TX-500 MP does have two real, working paths to get channels
+programmed today, just not through `program_channels.py`/Channel Picker
+directly:
+
+- **`export_tx500mp_csv.py`** converts a `channels_*.json` file into the
+  CSV format Lab599's own **TRX Remote** Android app imports
+  (`Channel,Name,Frequency,Mode,Filter,Power,ToneMode,ToneFreq,Offset`) -
+  run it, get the CSV onto the phone running TRX Remote, and import it
+  there. Filter and Power aren't tracked by Channel Picker's own channel
+  data at all, so they're filled in with a documented default (FIL2 for
+  CW, FIL1 otherwise; flat 10W) rather than left to guesswork per-channel
+  - see the script's own docstring.
+
+- **`export_tx500mp_bin.py`** converts the same source into the binary
+  `.mem` format Lab599's **TRX Mem** *desktop* software uses (works
+  directly with the radio over USB - no phone/Bluetooth needed). This
+  format was reverse-engineered live 2026-09-16 from real saves, not
+  guessed from a blank template - see the script's own docstring for the
+  full byte layout. Two things worth remembering if this ever needs
+  revisiting:
+  - The format has **no room for a channel name** at all (600 bytes = 100
+    fixed 6-byte records: 4-byte little-endian frequency + 1-byte ASCII
+    mode digit + 1-byte ASCII PreATT digit, channel number is just the
+    record's position in the file) - unlike the CSV/TRX Remote path,
+    which does carry names. Cross-reference the channel number against
+    Channel Picker or the CSV export to know what's programmed where.
+  - **The mode byte's default/unset value (`0`) looks like "USB" in TRX
+    Mem's own UI but isn't a real saved value** - a never-touched channel
+    defaults to `0`, and the mode dropdown just shows its own first list
+    item ("USB") for that, which is a UI default artifact, not a
+    persisted encoding. This cost real back-and-forth: an earlier version
+    of this script used `0` for USB based on exactly that dropdown
+    display, silently writing every USB channel as "unset" instead.
+    Confirmed correct via an explicit re-select (switch to a different
+    mode, save, switch back to USB, save again - only then does the real
+    byte value show up): **1=LSB, 2=USB, 5=AM** (CW/FM/DIG not confirmed -
+    the script refuses to guess those, raising a clear error instead).
 
 Within that scope, it reads whichever radio is active in
 `~/radio_profiles/active-radio.conf` (the same file every other launcher
