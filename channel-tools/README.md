@@ -50,6 +50,30 @@ directly:
     byte value show up): **1=LSB, 2=USB, 5=AM** (CW/FM/DIG not confirmed -
     the script refuses to guess those, raising a clear error instead).
 
+  **Running TRX Mem itself** (Windows-only, no native Linux build of the
+  GUI app - there's a `Lab599-TRXMem-v1-03-x64` file alongside the .exe
+  in the same download, but it's unrelated tooling, not a Linux port of
+  the GUI): download from Lab599's site into `~/Downloads/Lab599-TRX-Mem-EN/`,
+  then map the radio's serial port to a Wine COM port *before* launching
+  (this uses the default `~/.wine` prefix, not `~/.wine32` - the prefix
+  every other Wine app in this project uses for VARA/VarAC):
+  ```
+  sudo chmod 666 /dev/ttyUSB0          # or whatever the DigiRig enumerates as
+  ln -s /dev/ttyUSB0 ~/.wine/dosdevices/com50
+  ls -l ~/.wine/dosdevices/            # confirm the symlink
+  cd ~/Downloads/Lab599-TRX-Mem-EN
+  wine start /Unix "Lab599-TRXMem-1.03(x64).exe"
+  ```
+  Then in TRX Mem itself, select COM50 (or whatever port number was
+  used) and connect. `chmod 666` bypasses `dialout` group permissions
+  for a one-off session rather than needing a logout/login - being in
+  the `dialout` group (which `Setup_Ham_Radio_Stack.sh` already adds
+  this user to) should work too without the chmod, not independently
+  confirmed. Prefer mapping the stable `/dev/serial/by-id/...` path
+  instead of a raw `/dev/ttyUSB0` if doing this more than once - the
+  same raw-index staleness this project has hit more than once tonight
+  applies here too.
+
 Within that scope, it reads whichever radio is active in
 `~/radio_profiles/active-radio.conf` (the same file every other launcher
 in this project uses) and picks the right protocol automatically. See
