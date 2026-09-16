@@ -12,6 +12,17 @@ Lab599 respectively — neither CI-V nor Yaesu CAT) — trying to use it with
 one of those active radios fails with a clear "No channel map for
 `<radio>`" error rather than attempting anything and getting it wrong.
 
+The TX-500 MP does have a real, working path to get channels programmed
+today, just not through `program_channels.py`/Channel Picker directly:
+`export_tx500mp_csv.py` converts a `channels_*.json` file into the CSV
+format Lab599's own **TRX Remote** Android app imports (`Channel,Name,
+Frequency,Mode,Filter,Power,ToneMode,ToneFreq,Offset`) - run it, get the
+CSV onto the phone running TRX Remote, and import it there. Filter and
+Power aren't tracked by Channel Picker's own channel data at all, so
+they're filled in with a documented default (FIL2 for CW, FIL1
+otherwise; flat 10W) rather than left to guesswork per-channel - see the
+script's own docstring.
+
 Within that scope, it reads whichever radio is active in
 `~/radio_profiles/active-radio.conf` (the same file every other launcher
 in this project uses) and picks the right protocol automatically. See
