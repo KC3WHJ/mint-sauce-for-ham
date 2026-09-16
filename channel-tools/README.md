@@ -281,35 +281,33 @@ HF/6m-only like the IC-7300/FT-891, so both would likely reuse the same
 `MEMORY_GROUPS="false"`) - the actual work in both cases is the protocol
 backend, not the channel data.
 
-**G-90 (Xiegu) - the more promising of the two.** Genuinely speaks Icom
-**CI-V**, not a separate protocol - confirmed two ways: `g90.conf`'s own
-existing comment about flrig's Xiegu driver bug (hardcoded polling
-address `0x88` instead of this radio's real `0x70`, found during earlier
-debugging on real hardware), and Hamlib's own G-90 driver
-(`Hamlib/rigs/icom/xiegu.c`) lives under the Icom backend tree, not a
-standalone one. Notably, that Hamlib driver doesn't implement any
-G-90-specific memory-channel logic at all - `.set_mem`/`.set_bank` just
-delegate straight to Hamlib's *generic* Icom memory functions, meaning
-Hamlib itself is betting the standard Icom `cmd 08`/`09`/`1A 00` memory
-commands work unmodified on this radio. That's a real, if secondhand,
-signal this toolkit's existing `Radio` (CI-V) class might work against
-the G-90 with little or no change beyond `radio_profiles/g90.conf`
-getting `PROTOCOL="civ"` and the right `CIV_ADDR`.
+**G-90 (Xiegu) - genuinely speaks Icom CI-V, but confirmed NOT feasible
+as of this unit's current firmware.** Live-tested 2026-09-15 (read-only,
+non-destructive probes): basic CI-V rig-control commands work fine (cmd
+`03` read frequency, cmd `04` read mode both returned real data). But
+the memory-programming commands this toolkit actually needs don't -
+**cmd `08`** (select memory channel) got no response at all, not even a
+rejection, meaning the radio's CI-V firmware doesn't recognize it; **cmd
+`1A 00`** (read memory channel content) got an explicit **NG (error)
+reply** - recognized, but refused. So this isn't a "probably works with
+minor changes" situation - it's confirmed blocked at the firmware level
+unless Xiegu adds real CI-V memory support in a future update. Revisit
+only if a firmware update specifically claims to add this, and re-test
+the same way before assuming it works.
 
-Two things need live confirmation before trusting that, not assumption:
-1. **The CI-V address itself is inconsistently reported across sources**
-   - `0x70` (this project's own real-hardware finding), `0xa4` (Hamlib's
-   driver default), and other values tied to different firmware
-   revisions turn up elsewhere. Don't trust any single source; verify
-   against the actual unit the way `0x70` was originally found (a raw
-   CI-V test, not just a driver default).
-2. **Whether the G-90's CI-V emulation actually implements the
-   memory-channel commands at all**, versus only enough CI-V for basic
-   frequency/mode rig control (common for radios that add just enough
-   CI-V compatibility for logging/rig-control software, not full memory
-   programming). `cmd 08`/`09` (select + commit) would be the first thing
-   to test, single channel, before assuming `1A 00` (name read/write)
-   behaves like the IC-705 rather than rejecting like the IC-7300.
+(Also resolved in the same session: the G-90 doesn't appear to validate
+the CI-V destination address at all for basic commands - it replied
+identically whether addressed as `0x70`, `0xa4`, `0x88`, `0x1d`, or
+`0x19`. So the address inconsistency across sources noted originally
+turned out to be a non-issue for read commands, though this was never
+tested for writes and doesn't change the memory-command finding above.)
+
+Background on why this looked promising before testing: `g90.conf`'s own
+existing comment about flrig's Xiegu driver bug (hardcoded polling
+address `0x88` instead of this radio's real `0x70`) and Hamlib's own
+G-90 driver (`Hamlib/rigs/icom/xiegu.c`) living under the Icom backend
+tree both pointed at real CI-V compatibility - which is true for basic
+rig control, just not for memory programming.
 
 **TX-500 MP (Lab599) - a genuine third protocol backend, comparable in
 scope to today's FT-891 work.** Uses **Kenwood TS-2000 CAT emulation**
@@ -329,7 +327,9 @@ hand-derive from a possibly-garbled table extraction without a concrete
 worked example to check against, that's exactly what cost the most time
 during the FT-891 implementation.
 
-Neither is likely to be a quick follow-on to the FT-891 work even if the
-G-90 turns out to need minimal new code - both still need real hardware
-in front of whoever implements them, single-channel-first, same as every
-other radio in this toolkit.
+Neither is a quick follow-on to the FT-891 work: the G-90 is now
+confirmed blocked at the firmware level (not a code problem to solve),
+and the TX-500 MP is a full third-protocol-backend project. Both
+conclusions came from putting real hardware in front of the question
+rather than reasoning from driver source code or documentation alone -
+same discipline as everywhere else in this toolkit.
