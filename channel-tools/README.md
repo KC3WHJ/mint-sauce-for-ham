@@ -197,18 +197,19 @@ you add or edit channels here and rerun `build_channel_index.py`.
 
 **The radio must already be in MEMO mode** (VFO/MEMORY icon → [MEMO] on the
 touchscreen, or the MEMO button on radios with one) for "Go to Channel" to
-actually change the displayed frequency. CI-V's memory-select commands
-(`08`/`08 A0`) set which channel is selected, but that only becomes
-visible/tuned if the radio's own operating mode is already Memory rather
-than VFO — there's no CI-V command to force that mode switch remotely. If a
-selection silently does nothing (or the radio briefly flashes a group
-number but the frequency doesn't change), check the radio is in MEMO mode
-first.
+actually change the displayed frequency. The memory-select commands on
+both protocols (CI-V `08`/`08 A0`, Yaesu CAT `MC`) set which channel is
+selected, but that only becomes visible/tuned if the radio's own
+operating mode is already Memory rather than VFO — neither protocol has
+a command to force that mode switch remotely (confirmed for the FT-891
+too, not just assumed from the Icom side). If a selection silently does
+nothing (or the radio briefly flashes a group number but the frequency
+doesn't change), check the radio is in MEMO mode first.
 
 **If `rigctld` or flrig is running, the picker stops it automatically before
 sending its command** - confirmed 2026-09-10 that leaving either running
 while the picker also opens the serial port directly corrupts both sides'
-CI-V traffic (two processes writing raw bytes to the same physical UART at
+traffic (two processes writing raw bytes to the same physical UART at
 once), and the picker's old error handling only caught an explicit NG reply
 - a corrupted/timed-out reply slipped through as a false "success" message
 with no actual effect on the radio. It does *not* restart whatever it
