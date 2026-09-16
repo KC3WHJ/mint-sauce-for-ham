@@ -504,14 +504,17 @@ and `g90.conf` in this repo for real, working examples. Fields:
 
 `channel-tools/` is a separate, self-contained toolkit for programming
 memory channels and browsing them from a desktop app — independent of the
-main setup script above. **Icom radios only**: it's built entirely on
-Icom's CI-V protocol, so it does *not* work with the FT-891, G-90, or
-TX-500 MP (fails with a clear error rather than doing something wrong).
-Within that scope it reads whichever radio is active in
-`radio_profiles/active-radio.conf`, same as everything else in this
-project — works with the IC-705 (all 16 channel groups, including VHF/UHF
-repeaters) and the IC-7300 (the 4 HF-only sections, since it has no
-VHF/UHF or memory-group concept at all). It can
+main setup script above. **Two protocol backends, three radios — not
+every radio this project supports.** It speaks Icom's CI-V protocol
+(IC-705, IC-7300) or Yaesu's CAT protocol (FT-891), picked automatically
+per the active radio's `PROTOCOL` setting. It does *not* work with the
+G-90 or TX-500 MP (fails with a clear error rather than doing something
+wrong — see `channel-tools/README.md`'s "Future work" section for what
+adding those would take). Within that scope it reads whichever radio is
+active in `radio_profiles/active-radio.conf`, same as everything else in
+this project — the IC-705 gets all 16 channel groups including VHF/UHF
+repeaters; the IC-7300 and FT-891 each get the 5 HF-only sections, since
+neither has VHF/UHF or a memory-group concept at all. It can
 turn a RAINWorks-style "Standalone Analog Programming Guide" PDF into
 memory channels automatically, or you can build/edit the channel CSVs by
 hand. See [`channel-tools/README.md`](channel-tools/README.md) for the

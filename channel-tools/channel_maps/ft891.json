@@ -1,0 +1,27 @@
+{
+  "HF_Nets_National": {
+    "display_name": "HF Nets (National)",
+    "description": "National/international HF amateur nets with fixed frequencies: Hurricane Watch Net, SATERN, Maritime Mobile Service Network, NYS RACES, plus 20/40/80m nets added 2026-09-10 from netfinder.radio. (CH151-157 -> memory 1-7; CH204-226 -> memory 54-76)",
+    "base_channel": 151
+  },
+  "Time_Standard_Stations": {
+    "display_name": "Time Standard Stations",
+    "description": "WWV, WWVH, and CHU time/frequency standard broadcasts. Receive-only reference. (CH158-169 -> memory 8-19)",
+    "base_channel": 151
+  },
+  "Monitor_Only_Military_USCG": {
+    "display_name": "Military & USCG Monitor",
+    "description": "HF-GCS (USAF), MARS, Canadian Forces HF, and USCG NMN Chesapeake weather broadcasts. Receive-only. (CH170-182 -> memory 20-32)",
+    "base_channel": 151
+  },
+  "Shortwave_Broadcast": {
+    "display_name": "Shortwave Broadcast (Enjoyment)",
+    "description": "WWCR, WBCQ, Radio Havana Cuba, Radio Romania International, and WRMI - popular English-language shortwave broadcasters receivable in the eastern US. Receive-only. (CH183-203 -> memory 33-53)",
+    "base_channel": 151
+  },
+  "AMRRON_Nets": {
+    "display_name": "AmRRON",
+    "description": "AmRRON national/regional voice and digital (Contestia 4/250) nets - added 2026-09-10 from amrron.com's own current nets page. Digital nets are programmed at their underlying USB/LSB carrier frequency (decoded via fldigi or similar), same approach as this project's other digital-net channels. (CH227-233 -> memory 77-83)",
+    "base_channel": 151
+  }
+}

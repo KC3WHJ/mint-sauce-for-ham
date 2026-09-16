@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Channel picker: browse programmed memory channels by name or group and
-switch the radio to the selected one over CI-V. Radio-neutral -- it reads
-~/radio_profiles/active-radio.conf (the same file every other launcher in
-this project uses) to know which radio, port, and CI-V dialect to speak.
+switch the radio to the selected one (Icom CI-V or Yaesu CAT, per the
+active profile's PROTOCOL). It reads ~/radio_profiles/active-radio.conf
+(the same file every other launcher in this project uses) to know which
+radio, port, and protocol to speak.
 
 Run build_channel_index.py at least once first (see README.md) so
 channels_<radio>.json exists alongside this script."""
@@ -16,7 +17,6 @@ from tkinter import ttk
 
 from serial import Serial, SerialException
 
-BAUD = 115200
 CONTROLLER_ADDR = bytes.fromhex("E0")
 HERE = os.path.dirname(os.path.abspath(__file__))
 ACTIVE_RADIO_CONF = os.path.expanduser("~/radio_profiles/active-radio.conf")
@@ -81,32 +81,51 @@ def stop_conflicting_processes() -> list[str]:
     return stopped
 
 
+def select_memory_civ(profile: dict, group: int, slot: int, ser: Serial):
+    """Icom CI-V memory-select (cmd 08/08 A0)."""
+    transceiver_addr = bytes.fromhex(profile["CIV_ADDR"])
+    memory_groups = profile.get("MEMORY_GROUPS", "true") == "true"
+    frames = [(b"\x08\xA0", encode_bcd(group)), (b"\x08", encode_bcd(slot))] \
+        if memory_groups else [(b"\x08", encode_bcd(slot))]
+    for cmd, data in frames:
+        frame = b"\xfe\xfe" + transceiver_addr + CONTROLLER_ADDR + cmd + data + b"\xfd"
+        ser.write(frame)
+        reply = ser.read_until(expected=b"\xfd")
+        if not reply or reply[-2:-1] != b"\xfb":
+            # \xfb = OK, \xfa = NG - but treat anything other than an
+            # explicit OK as failure, not just an explicit NG. An empty/
+            # truncated reply (e.g. a timeout) is NOT success and must
+            # not be treated as one.
+            reason = "no reply (timed out)" if not reply else "rejected (NG) or garbled reply"
+            raise RuntimeError(f"Radio did not confirm the command - {reason}")
+
+
+def select_memory_yaesu_cat(profile: dict, slot: int, ser: Serial):
+    """Yaesu CAT memory-select (MC command) - see program_channels.py's
+    YaesuFT891Radio docstring for the protocol details/sourcing. MC gives NO
+    reply on success (confirmed live 2026-09-15, matches the manual's own
+    Set/Ans table) - only an explicit rejection ("?;") means failure; no
+    reply at all is the expected/successful case here, not a timeout."""
+    ser.write(f"MC{slot:03d};".encode("ascii"))
+    reply = ser.read_until(expected=b";")
+    if reply and reply.decode("ascii", errors="replace") in ("?;", "N;"):
+        raise RuntimeError(f"Radio did not confirm the command - rejected (reply: {reply!r})")
+
+
 def select_memory(profile: dict, group: int, slot: int) -> list[str]:
     """Opens the serial port just long enough to switch the radio's active
     memory. Returns the names of any conflicting process that had to be
     stopped first (see stop_conflicting_processes), so the caller can tell
     the user - they aren't restarted automatically, since this tool has no
     way to know which one (if any) the user wants back."""
-    serial_device = profile["SERIAL_DEVICE"]
-    transceiver_addr = bytes.fromhex(profile["CIV_ADDR"])
-    memory_groups = profile.get("MEMORY_GROUPS", "true") == "true"
-
+    baud = int(profile.get("BAUD_RATE", 115200))
     stopped = stop_conflicting_processes()
-    ser = Serial(serial_device, BAUD, timeout=1)
+    ser = Serial(profile["SERIAL_DEVICE"], baud, timeout=1)
     try:
-        frames = [(b"\x08\xA0", encode_bcd(group)), (b"\x08", encode_bcd(slot))] \
-            if memory_groups else [(b"\x08", encode_bcd(slot))]
-        for cmd, data in frames:
-            frame = b"\xfe\xfe" + transceiver_addr + CONTROLLER_ADDR + cmd + data + b"\xfd"
-            ser.write(frame)
-            reply = ser.read_until(expected=b"\xfd")
-            if not reply or reply[-2:-1] != b"\xfb":
-                # \xfb = OK, \xfa = NG - but treat anything other than an
-                # explicit OK as failure, not just an explicit NG. An empty/
-                # truncated reply (e.g. a timeout) is NOT success and must
-                # not be treated as one.
-                reason = "no reply (timed out)" if not reply else "rejected (NG) or garbled reply"
-                raise RuntimeError(f"Radio did not confirm the command - {reason}")
+        if profile.get("PROTOCOL", "civ") == "yaesu_cat":
+            select_memory_yaesu_cat(profile, slot, ser)
+        else:
+            select_memory_civ(profile, group, slot, ser)
     finally:
         ser.close()
     return stopped

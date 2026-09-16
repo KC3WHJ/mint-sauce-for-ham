@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Programs memory channels over CI-V from the per-section CSVs in this
-directory, for whichever radio is active in ~/radio_profiles/active-radio.conf
-(the same file every other launcher in this project uses). Self-contained
-(only needs pyserial, already installed system-wide).
+"""Programs memory channels (Icom CI-V or Yaesu CAT, per the active
+profile's PROTOCOL - see the Radio and YaesuFT891Radio classes below) from
+the per-section CSVs in this directory, for whichever radio is active in
+~/radio_profiles/active-radio.conf (the same file every other launcher in
+this project uses). Self-contained (only needs pyserial, already installed
+system-wide).
 
 Usage:
     python3 program_channels.py            # program every channel for the active radio
@@ -19,7 +21,6 @@ import time
 
 from serial import Serial
 
-BAUD = 115200
 CONTROLLER_ADDR = bytes.fromhex("E0")
 HERE = os.path.dirname(os.path.abspath(__file__))
 ACTIVE_RADIO_CONF = os.path.expanduser("~/radio_profiles/active-radio.conf")
@@ -131,7 +132,13 @@ class Radio:
     radio_profiles/*.conf and README.md."""
 
     def __init__(self, profile: dict):
-        self.ser = Serial(profile["SERIAL_DEVICE"], BAUD, timeout=1)
+        # BAUD must come from the profile, not a shared constant - confirmed
+        # 2026-09-15 this was silently wrong for any non-115200 radio (the
+        # FT-891's real confirmed CAT rate is 38400; a mismatched baud
+        # produces a silent timeout, not a clean error, same failure mode as
+        # the rigctl decimal/hex CI-V address bug documented in README.md).
+        baud = int(profile.get("BAUD_RATE", 115200))
+        self.ser = Serial(profile["SERIAL_DEVICE"], baud, timeout=1)
         self.transceiver_addr = bytes.fromhex(profile["CIV_ADDR"])
         self.memory_groups = profile.get("MEMORY_GROUPS", "true") == "true"
 
@@ -251,6 +258,119 @@ class Radio:
         # the radio's own memory content.
 
 
+# Yaesu CAT mode codes (1 ASCII char), confirmed against Yaesu's own FT-891
+# CAT Operation Reference Book (MD/MW/MT command tables) - a completely
+# different code space from Icom's CI-V MODE_CODES above, not shared.
+YAESU_MODE_CODES = {
+    "LSB": "1", "USB": "2", "CW": "3", "FM": "4", "AM": "5",
+    "RTTY": "6", "RTTY-LSB": "6", "CW-R": "7", "DATA-LSB": "8",
+    "RTTY-USB": "9", "RTTY-R": "9", "FM-N": "B", "DATA-USB": "C", "AM-N": "D",
+}
+
+
+class YaesuFT891Radio:
+    """Speaks the FT-891's plain-ASCII Yaesu CAT protocol (MW/MT/MR/MC) -
+    completely different from Icom's binary CI-V (the Radio class above) -
+    confirmed against Yaesu's own FT-891 CAT Operation Reference Book, with
+    the 9-digit Hz frequency field width cross-checked against the manual's
+    own worked FA example ("FA014250000;" = 14.250000 MHz). Flat 001-099
+    memory, no group/bank concept at all - this radio is HF/6m-only, same
+    shape as the IC-7300's flat memory (see MEMORY_GROUPS in
+    radio_profiles/*.conf), so channel_maps/ft891.json uses the same
+    sections as channel_maps/ic7300.json.
+
+    Scope matches the IC-7300 implementation's own precedent exactly:
+    simplex only (P10 field always "0") and CTCSS off (P8 field always
+    "0") - no channel this toolkit has ever needed on an HF-only radio uses
+    either, and wiring up the FT-891's separate OS (repeater offset) and CN
+    (CTCSS/DCS number) commands for cases nothing here needs isn't worth
+    the untested surface area. Unlike the IC-7300, though, this radio DOES
+    support writing a channel's on-air name via CAT (the MT command's TAG
+    field, up to 12 ASCII chars) - no equivalent of the IC-7300's
+    read-modify-write name-rejection bug found here (confirmed live,
+    2026-09-15, all 83 channels programmed with zero failures and spot-
+    checked correct).
+
+    Two real protocol quirks confirmed live (not assumed from the manual):
+    1. MW/MT/MC give NO reply at all on success, despite the manual's own
+       command table marking Set replies as present for some of these -
+       only an explicit rejection ("?;") comes back, and only promptly.
+       send_noreply() below exists because of this; treating "no reply" as
+       a timeout/failure (the natural first assumption, and what this file
+       originally did) reports every successful write as a failure.
+    2. MT's READ form (query a channel's stored data) echoes back the
+       wrong channel number in its own reply's P1 field - always the last-
+       written channel, not the one actually queried - even though the
+       rest of the reply (frequency/mode/name) is correct data for the
+       channel that was actually asked about. Not used for anything this
+       toolkit does (Channel Picker reads names from channels_<radio>.json,
+       never queries the radio), so left as a documented caveat rather
+       than worked around."""
+
+    def __init__(self, profile: dict):
+        baud = int(profile.get("BAUD_RATE", 115200))
+        # 0.3s, not the Icom side's 1-2s: confirmed live 2026-09-15 that
+        # MW/MT/MC give NO reply at all on success (matches the manual's own
+        # Set/Read/Ans/AI table - all three show Ans "X" for Set), while an
+        # explicit rejection ("?;") comes back promptly. A long timeout here
+        # would just be a multi-second stall per channel for the common
+        # (successful) case, waiting out a reply that was never coming.
+        self.ser = Serial(profile["SERIAL_DEVICE"], baud, timeout=0.3)
+
+    def close(self):
+        self.ser.close()
+
+    def send_noreply(self, command: str):
+        """For MW/MT/MC - Set-only commands with no Answer on success
+        (confirmed live). Only raises on an explicit rejection reply; no
+        reply at all is the expected/successful case, not a timeout error."""
+        self.ser.write(command.encode("ascii"))
+        reply = self.ser.read_until(expected=b";")
+        text = reply.decode("ascii", errors="replace")
+        if text in ("?;", "N;"):
+            raise CivError(f"Radio rejected command {command!r} (reply: {text!r})")
+
+    def send(self, command: str) -> str:
+        """For commands that DO reply (e.g. MR, MT's read form) - here an
+        empty reply really is a timeout/failure."""
+        self.ser.write(command.encode("ascii"))
+        reply = self.ser.read_until(expected=b";")
+        if not reply:
+            raise CivError(f"Timeout waiting for reply to {command!r}")
+        text = reply.decode("ascii", errors="replace")
+        if text in ("?;", "N;"):
+            raise CivError(f"Radio rejected command {command!r} (reply: {text!r})")
+        return text
+
+    def program_channel(self, group, channel: int, rx_hz: int, tx_hz: int, mode: str, tone_mode: str, ctcss, name: str):
+        mode_code = YAESU_MODE_CODES.get(mode.upper())
+        if mode_code is None:
+            mode_code = "2"  # USB - matches this project's HF-only default elsewhere
+        # tx_hz != rx_hz (repeater shift) and tone_mode/ctcss are accepted
+        # but deliberately not wired up - see class docstring "Scope".
+        tag_on = "1" if name else "0"
+        tag = (name.upper()[:12]).ljust(12) if name else " " * 12
+        cmd = (
+            f"MT{channel:03d}"
+            f"{rx_hz:09d}"
+            f"+0000"      # clarifier: direction/offset, unused (see docstring)
+            f"0"          # clarifier ON/OFF: always OFF
+            f"0"          # P5, fixed
+            f"{mode_code}"
+            f"0"          # P7, fixed
+            f"0"          # CTCSS: always OFF (see docstring "Scope")
+            f"00"         # P9, fixed
+            f"0"          # P10 shift: always simplex (see docstring "Scope")
+            f"{tag_on}"
+            f"{tag}"
+            ";"
+        )
+        self.send_noreply(cmd)
+
+    def select_memory(self, group, channel: int):
+        self.send_noreply(f"MC{channel:03d};")
+
+
 def load_channels(radio_key: str):
     map_path = os.path.join(HERE, "channel_maps", f"{radio_key}.json")
     if not os.path.exists(map_path):
@@ -280,7 +400,8 @@ def main():
     key = radio_key(profile.get("RIG_NAME", ""))
     print(f"Programming channels for {profile.get('RIG_NAME', '?')} ({key})...")
     rows = load_channels(key)
-    radio = Radio(profile)
+    protocol = profile.get("PROTOCOL", "civ")
+    radio = YaesuFT891Radio(profile) if protocol == "yaesu_cat" else Radio(profile)
     done, skipped, failed = [], [], []
     try:
         for row in rows:
