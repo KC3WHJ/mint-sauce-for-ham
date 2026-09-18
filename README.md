@@ -128,6 +128,40 @@ substitute for amrron.com's current SOI (Signal Operating Instructions).**
   explicitly support running receive-only for situational awareness
   without being a licensed operator (a receiver or SDR is enough).
 
+## Receive-only JS8Call via a web SDR (no radio needed at all)
+
+**Activate JS8Call WebSDR** / **Deactivate JS8Call WebSDR** (Desktop
+shortcuts) decode JS8 from any web-based SDR (websdr.org, kiwisdr.com,
+etc.) instead of this station's own radio — no rig control, no license
+even, since you're only receiving. The Linux equivalent of routing a
+WebSDR's audio through VB-Audio Cable on Windows: a virtual PulseAudio/
+PipeWire null sink (`websdr_sink`) that a browser tab plays into, whose
+automatic "monitor" JS8Call reads as its microphone.
+
+**Deliberately isolated from the real, radio-connected JS8Call** — this
+was the whole point of having separate Activate/Deactivate shortcuts
+rather than reusing the normal JS8Call setup:
+- its own config profile (`js8call -r WebSDR` → `JS8Call - WebSDR.ini`,
+  a completely separate file from the real `JS8Call.ini`)
+- `Rig=None` — no CAT/rigctld involvement at all
+- its own TCP API port (`2443`, vs the real profile's `2442`) so nothing
+  else (CommStat, etc.) can accidentally cross-connect
+- its own audio device (`websdr_sink`) — never touches the real radio's
+  audio device
+
+**Activate** creates the sink (if not already there), starts
+`js8call -r WebSDR`, then walks you through picking which currently-
+playing audio stream is the WebSDR via a `dialog` menu (same style as
+Select Radio) — open your WebSDR site, start playback, then run this.
+**Deactivate** stops that specific JS8Call instance (matched by its
+distinct `-r WebSDR` flag, so it can never touch a real, radio-connected
+instance even if one happens to be running) and unloads the sink.
+
+Verified live 2026-09-18 against a real public WebSDR
+(`websdr.ewi.utwente.nl`) — real signal detected, dB meter moving,
+waterfall showing genuine activity, all the way through to JS8Call
+actually decoding.
+
 ## Multi-radio support
 
 This station runs more than one radio (currently an Icom IC-705, Icom

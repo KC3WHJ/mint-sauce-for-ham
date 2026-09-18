@@ -1188,6 +1188,216 @@ EOF
 done
 echo "Start_WSJTX.sh, Start_JS8Call.sh, and Start_Fldigi.sh written (radio-agnostic via active-radio.conf)."
 
+section "Start_JS8Call_WebSDR.sh / Stop_JS8Call_WebSDR.sh"
+# Receive-only JS8Call decoding from a web-based SDR (websdr.org, kiwisdr,
+# etc.) instead of this station's own radio - routes a browser tab's audio
+# into JS8Call via a virtual PulseAudio/PipeWire null sink, the Linux
+# equivalent of VB-Audio Cable on Windows. Added 2026-09-18, tested live
+# against a real public WebSDR (websdr.ewi.utwente.nl).
+#
+# Deliberately isolated from the real radio setup: its own JS8Call config
+# profile (`-r WebSDR` -> "JS8Call - WebSDR.ini", Rig=None, its own TCP
+# port 2443 vs the real profile's 2442) and its own audio device (a null
+# sink named "websdr_sink") - never touches the real radio's audio device,
+# rigctld, or active-radio.conf. Activating/deactivating this can never
+# affect the real, radio-connected JS8Call.
+cat > "$HOME/Start_JS8Call_WebSDR.sh" <<'WEBSDR_START_EOF'
+#!/bin/bash
+# Receive-only JS8Call decoding from a web-based SDR (websdr.org, kiwisdr,
+# etc.) instead of this station's own radio - routes a browser tab's audio
+# into JS8Call via a virtual PulseAudio/PipeWire sink, the Linux equivalent
+# of VB-Audio Cable on Windows.
+#
+# Completely separate from the real radio setup on purpose: its own
+# JS8Call config profile (`-r WebSDR` -> ~/.config/JS8Call - WebSDR.ini,
+# Rig=None, its own TCP port 2443 vs the real profile's 2442), its own
+# audio device (a null sink named "websdr_sink", never touches the real
+# radio's audio device or rigctld/active-radio.conf) - activating/
+# deactivating this can never affect the real, radio-connected JS8Call.
+set -e
+
+SINK_NAME="websdr_sink"
+
+echo "=== Setting up virtual audio sink ==="
+if pactl list short sinks | grep -q "$SINK_NAME"; then
+    echo "$SINK_NAME already exists, reusing it."
+else
+    pactl load-module module-null-sink sink_name="$SINK_NAME" \
+        sink_properties=device.description=WebSDR_Sink > /dev/null
+    echo "Created virtual sink: $SINK_NAME"
+fi
+
+echo
+echo "=== Starting JS8Call (WebSDR profile - separate from your radio profile) ==="
+if pgrep -f "js8call -r WebSDR" > /dev/null; then
+    echo "Already running."
+else
+    js8call -r WebSDR &
+    disown
+    sleep 2
+fi
+
+echo
+echo "=== Route your browser's audio into JS8Call ==="
+echo "1. Open your WebSDR site (e.g. websdr.org, kiwisdr.com) in a browser"
+echo "   and start playing audio."
+echo "2. Press Enter here once it's playing."
+read -p ""
+
+PYEOF=$(python3 - "$SINK_NAME" <<'PYSCRIPT'
+import json, subprocess, sys
+
+sink_name = sys.argv[1]
+out = subprocess.run(["pactl", "-f", "json", "list", "sink-inputs"],
+                      capture_output=True, text=True).stdout
+inputs = json.loads(out) if out.strip() else []
+
+if not inputs:
+    print("NONE")
+    sys.exit(0)
+
+items = []
+for i in inputs:
+    props = i.get("properties", {})
+    label = props.get("application.name", "unknown app")
+    media = props.get("media.name", "")
+    if media:
+        label += f" - {media}"
+    items.append((str(i["index"]), label))
+
+# Print as dialog-ready pairs, one per line: index<TAB>label
+for idx, label in items:
+    print(f"{idx}\t{label}")
+PYSCRIPT
+)
+
+if [ "$PYEOF" = "NONE" ] || [ -z "$PYEOF" ]; then
+    echo "No audio streams currently playing - start the WebSDR audio first,"
+    echo "then re-run this script (it's safe to re-run; the sink/JS8Call are"
+    echo "already up and will just be reused)."
+    exit 1
+fi
+
+DIALOG_ARGS=()
+while IFS=$'\t' read -r idx label; do
+    DIALOG_ARGS+=("$idx" "$label")
+done <<< "$PYEOF"
+
+CHOICE=$(dialog --clear --menu "Which audio stream is the WebSDR?" 15 70 6 "${DIALOG_ARGS[@]}" 3>&1 1>&2 2>&3)
+clear
+
+if [ -z "$CHOICE" ]; then
+    echo "No selection made - nothing routed. Re-run this script to try again."
+    exit 1
+fi
+
+pactl move-sink-input "$CHOICE" "$SINK_NAME"
+echo "Routed stream $CHOICE into $SINK_NAME - JS8Call (WebSDR profile) should"
+echo "start decoding shortly."
+echo
+echo "When done, use 'Stop JS8Call WebSDR' to clean up."
+WEBSDR_START_EOF
+chmod +x "$HOME/Start_JS8Call_WebSDR.sh"
+
+cat > "$HOME/Stop_JS8Call_WebSDR.sh" <<'WEBSDR_STOP_EOF'
+#!/bin/bash
+# Cleans up the WebSDR receive-only JS8Call setup - closes the WebSDR-
+# profile JS8Call instance specifically (never touches a real,
+# radio-connected JS8Call, matched by its distinct -r WebSDR flag) and
+# unloads the virtual audio sink.
+SINK_NAME="websdr_sink"
+
+echo "=== Stopping WebSDR-profile JS8Call ==="
+if pgrep -f "js8call -r WebSDR" > /dev/null; then
+    pkill -f "js8call -r WebSDR"
+    echo "Stopped."
+else
+    echo "Not running."
+fi
+
+echo
+echo "=== Removing virtual audio sink ==="
+MODULE_ID=$(pactl list short modules | awk -v s="sink_name=$SINK_NAME" '$0 ~ s {print $1}')
+if [ -n "$MODULE_ID" ]; then
+    pactl unload-module "$MODULE_ID"
+    echo "Removed $SINK_NAME."
+else
+    echo "$SINK_NAME was not loaded."
+fi
+
+echo
+echo "Done. Your radio-connected JS8Call setup was never touched."
+WEBSDR_STOP_EOF
+chmod +x "$HOME/Stop_JS8Call_WebSDR.sh"
+
+# Pre-seed the WebSDR profile's own config so first use doesn't need
+# JS8Call's manual first-run wizard - Rig=None (no CAT at all) and
+# SoundInName pointed at the null sink's monitor. Only written if it
+# doesn't already exist, so re-running this script never clobbers
+# settings you've since changed inside JS8Call itself.
+mkdir -p "$HOME/.config"
+if [ ! -f "$HOME/.config/JS8Call - WebSDR.ini" ]; then
+cat > "$HOME/.config/JS8Call - WebSDR.ini" <<EOF
+[MultiSettings]
+CurrentName=Default
+
+[Configuration]
+AcceptTCPRequests=true
+AcceptUDPRequests=false
+AudioInputChannel=Mono
+AudioOutputChannel=Mono
+CATNetworkPort=
+CATSerialPort=
+MyCall=$CALLSIGN
+MyGrid=$GRID
+PSKReporter=true
+PTTport=
+Polling=1
+Rig=None
+RxBandwidth=2500
+SaveDir=$HOME/.local/share/JS8Call/save
+SoundInName=websdr_sink.monitor
+SoundOutName=
+TCPEnabled=true
+TCPMaxConnections=1
+TCPServer=127.0.0.1
+TCPServerPort=2443
+UDPServer=127.0.0.1
+UDPServerPort=2238
+EOF
+echo "Wrote JS8Call - WebSDR.ini (Rig=None, its own TCP port 2443)."
+else
+echo "JS8Call - WebSDR.ini already exists, leaving it as-is."
+fi
+
+cat > "$HOME/Desktop/Activate JS8Call WebSDR.desktop" <<EOF
+[Desktop Entry]
+Name=Activate JS8Call WebSDR
+Comment=Receive-only JS8Call decoding from a web SDR (no radio needed)
+Exec=bash -c "\$HOME/Start_JS8Call_WebSDR.sh; echo; read -p 'Press Enter to close...'"
+Type=Application
+Terminal=true
+Icon=network-wireless
+Categories=HamRadio;
+EOF
+chmod +x "$HOME/Desktop/Activate JS8Call WebSDR.desktop"
+gio set "$HOME/Desktop/Activate JS8Call WebSDR.desktop" "metadata::trusted" true 2>/dev/null || true
+
+cat > "$HOME/Desktop/Deactivate JS8Call WebSDR.desktop" <<EOF
+[Desktop Entry]
+Name=Deactivate JS8Call WebSDR
+Comment=Cleans up the WebSDR JS8Call setup (does not touch your radio JS8Call)
+Exec=bash -c "\$HOME/Stop_JS8Call_WebSDR.sh; echo; read -p 'Press Enter to close...'"
+Type=Application
+Terminal=true
+Icon=network-offline
+Categories=HamRadio;
+EOF
+chmod +x "$HOME/Desktop/Deactivate JS8Call WebSDR.desktop"
+gio set "$HOME/Desktop/Deactivate JS8Call WebSDR.desktop" "metadata::trusted" true 2>/dev/null || true
+
+echo "Start_JS8Call_WebSDR.sh, Stop_JS8Call_WebSDR.sh, and their Desktop shortcuts written."
+
 section "stop-pat.sh"
 mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/stop-pat.sh" <<'EOF'
