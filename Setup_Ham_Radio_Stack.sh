@@ -95,7 +95,7 @@ sudo apt update
 sudo apt install -y wine winetricks cabextract winbind libhamlib-utils curl \
     rtl-sdr gpsd gpsd-clients chrony jq wget unzip git flrig conky-all \
     lm-sensors python3-tk pulseaudio-utils sound-theme-freedesktop \
-    wmctrl x11-utils python3-serial
+    wmctrl x11-utils python3-serial rsync
 
 section "Serial port access (dialout group)"
 if ! groups "$USER" | grep -qw dialout; then
@@ -1208,12 +1208,13 @@ cat > "$HOME/Start_JS8Call_WebSDR.sh" <<'WEBSDR_START_EOF'
 # into JS8Call via a virtual PulseAudio/PipeWire sink, the Linux equivalent
 # of VB-Audio Cable on Windows.
 #
-# Completely separate from the real radio setup on purpose: its own
-# JS8Call config profile (`-r WebSDR` -> ~/.config/JS8Call - WebSDR.ini,
-# Rig=None, its own TCP port 2443 vs the real profile's 2442), its own
-# audio device (a null sink named "websdr_sink", never touches the real
-# radio's audio device or rigctld/active-radio.conf) - activating/
-# deactivating this can never affect the real, radio-connected JS8Call.
+# Completely separate from the real radio setup on purpose (per the user's
+# own explicit request, 2026-09-18): its own JS8Call config profile
+# (`-r WebSDR` -> ~/.config/JS8Call - WebSDR.ini, Rig=None, its own TCP
+# port 2443 vs the real profile's 2442), its own audio device (a null
+# sink named "websdr_sink", never touches the real radio's audio device
+# or rigctld/active-radio.conf) - activating/deactivating this can never
+# affect the real, radio-connected JS8Call.
 set -e
 
 SINK_NAME="websdr_sink"
@@ -1236,6 +1237,10 @@ else
     disown
     sleep 2
 fi
+
+echo
+echo "=== Starting CommStat (WebSDR copy - separate from your real CommStat) ==="
+"$HOME/Start_CommStat_WebSDR.sh" || echo "CommStat (WebSDR copy) didn't start - JS8Call itself is unaffected."
 
 echo
 echo "=== Route your browser's audio into JS8Call ==="
@@ -1307,6 +1312,17 @@ cat > "$HOME/Stop_JS8Call_WebSDR.sh" <<'WEBSDR_STOP_EOF'
 # unloads the virtual audio sink.
 SINK_NAME="websdr_sink"
 
+echo "=== Stopping CommStat (WebSDR copy) ==="
+# Matched by its own folder in the command line, so it can never touch your
+# real CommStat (which runs from ~/CommStat, not ~/CommStat-WebSDR).
+if pgrep -f "CommStat-WebSDR/little_gucci.py" > /dev/null; then
+    pkill -f "CommStat-WebSDR/little_gucci.py"
+    echo "Stopped."
+else
+    echo "Not running."
+fi
+
+echo
 echo "=== Stopping WebSDR-profile JS8Call ==="
 if pgrep -f "js8call -r WebSDR" > /dev/null; then
     pkill -f "js8call -r WebSDR"
@@ -1326,9 +1342,126 @@ else
 fi
 
 echo
-echo "Done. Your radio-connected JS8Call setup was never touched."
+echo "Done. Your radio-connected JS8Call and your real CommStat were never touched."
 WEBSDR_STOP_EOF
 chmod +x "$HOME/Stop_JS8Call_WebSDR.sh"
+
+cat > "$HOME/Start_CommStat_WebSDR.sh" <<'WEBSDR_COMMSTAT_EOF'
+#!/bin/bash
+# Starts a SECOND, fully separate CommStat that listens to the WebSDR
+# JS8Call profile (port 2443) - so the real CommStat's connectors, Auto/RF
+# Ack settings, and STATREP history are never touched or mixed in.
+#
+# Separate on purpose (same reasoning as the WebSDR JS8Call profile):
+#   - its own copy of the app in ~/CommStat-WebSDR (a real copy, not
+#     symlinks: commstat.py resolves symlinks back to the original folder
+#     and qrz_client.py locates traffic.db3 relative to its own file, so
+#     symlinks would quietly reuse the real database)
+#   - its own traffic.db3, seeded ONCE from the real one (callsign, groups,
+#     QRZ settings, abbreviations, QRZ cache carry over; alerts, messages,
+#     STATREPs, videos, and heard-station contacts start empty) with exactly
+#     one connector: WebSDR 127.0.0.1:2443, Auto on, RF Ack OFF (that
+#     JS8Call has no radio, and acks must never be keyed off traffic heard
+#     through someone else's receiver)
+#   - its own config.ini, with the opposite map theme of the real one as a
+#     visual cue for which window is which
+#   - its own Qt WebEngine profile/cache (XDG_DATA_HOME/XDG_CACHE_HOME), so
+#     two instances don't fight over one Chromium profile
+# Code is re-synced from ~/CommStat on every start (never the database or
+# config), so CommStat updates don't leave the copy stale.
+set -e
+
+SRC="$HOME/CommStat"
+DEST="$HOME/CommStat-WebSDR"
+PORT=2443
+
+if [ ! -d "$SRC" ] || [ ! -f "$SRC/traffic.db3" ]; then
+    echo "CommStat isn't installed/initialized at $SRC - nothing to copy from."
+    echo "Run the real CommStat once first (Desktop shortcut), then retry."
+    exit 1
+fi
+if ! command -v rsync > /dev/null; then
+    echo "rsync isn't installed (sudo apt install rsync) - needed to sync CommStat's code."
+    exit 1
+fi
+if pgrep -f "CommStat-WebSDR/little_gucci.py" > /dev/null; then
+    echo "CommStat (WebSDR copy) is already running."
+    exit 0
+fi
+
+mkdir -p "$DEST" "$DEST/.xdg/data" "$DEST/.xdg/cache"
+
+echo "Syncing CommStat's code into $DEST (database/config excluded)..."
+rsync -a \
+    --exclude '.git' --exclude '__pycache__' --exclude '.xdg' \
+    --exclude 'traffic.db3' --exclude 'traffic.db3-*' \
+    --include 'traffic.db3.template' --exclude 'traffic.db3.*' \
+    --exclude 'config.ini' --exclude 'commstat-websdr.log' \
+    "$SRC/" "$DEST/"
+
+if [ ! -f "$DEST/traffic.db3" ]; then
+    echo "First run: seeding the WebSDR CommStat's database from your settings..."
+    python3 - "$SRC/traffic.db3" "$DEST/traffic.db3" "$DEST" "$PORT" <<'PYSEED'
+import sqlite3, sys
+
+src_path, dst_path, code_dir, port = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+
+# Consistent snapshot even if the real CommStat has the database open.
+src = sqlite3.connect(src_path, timeout=10)
+dst = sqlite3.connect(dst_path)
+src.backup(dst)
+src.close()
+
+# History starts empty; settings/reference/cache tables are kept.
+for table in ("alerts", "messages", "statrep", "videos", "contacts"):
+    dst.execute(f'DELETE FROM "{table}"')
+dst.execute("DELETE FROM js8_connectors")
+dst.commit()
+dst.close()
+
+# Add the single connector through CommStat's own code, so validation and
+# defaults are exactly what its JS8 Connectors dialog would produce.
+sys.path.insert(0, code_dir)
+from connector_manager import ConnectorManager
+ok = ConnectorManager(dst_path).add_connector(
+    rig_name="WebSDR", tcp_port=port, server="127.0.0.1", state="",
+    comment="Receive-only JS8Call via web SDR (no radio, no TX)",
+    set_as_default=True, auto_connect=True, rf_ack=False,
+)
+if not ok:
+    sys.exit("Could not add the WebSDR connector to the copy's database.")
+print("Seeded traffic.db3 (settings kept, history cleared, single WebSDR connector).")
+PYSEED
+fi
+
+if [ ! -f "$DEST/config.ini" ] && [ -f "$SRC/config.ini" ]; then
+    real_theme=$(sed -n 's/^map_theme *= *//p' "$SRC/config.ini" | head -1)
+    if [ "$real_theme" = "dark" ]; then cue="light"; else cue="dark"; fi
+    sed "s/^map_theme *=.*/map_theme = $cue/" "$SRC/config.ini" > "$DEST/config.ini"
+    echo "Seeded config.ini (map theme: $cue, opposite of your real CommStat)."
+fi
+
+# CommStat connects to auto-connect connectors once, at startup - so make
+# sure the WebSDR JS8Call's API port is actually up first.
+if ! ss -tln | grep -q ":$PORT "; then
+    echo "Waiting for the WebSDR JS8Call's API port ($PORT)..."
+    for i in $(seq 1 30); do
+        ss -tln | grep -q ":$PORT " && break
+        sleep 1
+    done
+fi
+if ! ss -tln | grep -q ":$PORT "; then
+    echo "WARNING: nothing is listening on $PORT - is JS8Call (WebSDR profile) running?"
+    echo "Starting CommStat anyway; use its JS8 Connectors dialog to reconnect later."
+fi
+
+cd "$DEST"
+XDG_DATA_HOME="$DEST/.xdg/data" XDG_CACHE_HOME="$DEST/.xdg/cache" \
+    nohup python3 commstat.py > "$DEST/commstat-websdr.log" 2>&1 &
+disown
+echo "CommStat (WebSDR copy) launched."
+WEBSDR_COMMSTAT_EOF
+chmod +x "$HOME/Start_CommStat_WebSDR.sh"
 
 # Pre-seed the WebSDR profile's own config so first use doesn't need
 # JS8Call's manual first-run wizard - Rig=None (no CAT at all) and
@@ -1396,7 +1529,7 @@ EOF
 chmod +x "$HOME/Desktop/Deactivate JS8Call WebSDR.desktop"
 gio set "$HOME/Desktop/Deactivate JS8Call WebSDR.desktop" "metadata::trusted" true 2>/dev/null || true
 
-echo "Start_JS8Call_WebSDR.sh, Stop_JS8Call_WebSDR.sh, and their Desktop shortcuts written."
+echo "Start_JS8Call_WebSDR.sh, Stop_JS8Call_WebSDR.sh, Start_CommStat_WebSDR.sh, and their Desktop shortcuts written."
 
 section "stop-pat.sh"
 mkdir -p "$HOME/.local/bin"

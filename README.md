@@ -157,6 +157,27 @@ Select Radio) — open your WebSDR site, start playback, then run this.
 distinct `-r WebSDR` flag, so it can never touch a real, radio-connected
 instance even if one happens to be running) and unloads the sink.
 
+**CommStat too (optional).** If CommStat is installed at `~/CommStat`,
+Activate also starts a *second, fully separate* copy in
+`~/CommStat-WebSDR` (`Start_CommStat_WebSDR.sh`) wired to the WebSDR
+JS8Call on port 2443, and Deactivate stops it. CommStat's JS8 API allows
+only one client per JS8Call, and its connector settings (Auto, RF Ack)
+are shared across every connector in one database, so the WebSDR feed
+can't safely live in your real CommStat. The copy has:
+- its own `traffic.db3`, seeded once from your real one (callsign,
+  groups, QRZ settings, abbreviations carry over; alerts, messages,
+  STATREPs and heard-station contacts start empty) with a single
+  connector, `WebSDR` 127.0.0.1:2443, **Auto on, RF Ack off** (no radio,
+  and acknowledgements must never be keyed off someone else's receiver)
+- its own `config.ini` with the *opposite map theme* of your real one, so
+  you can tell the two windows apart
+- its own Qt WebEngine cache/profile, so two instances don't fight
+- code re-synced from `~/CommStat` on every start (never the database or
+  config), so CommStat updates don't leave it stale
+
+Your real CommStat, its database, and its connectors are never touched.
+Needs `rsync` (added to the setup script's apt list).
+
 Verified live 2026-09-18 against a real public WebSDR
 (`websdr.ewi.utwente.nl`) — real signal detected, dB meter moving,
 waterfall showing genuine activity, all the way through to JS8Call
