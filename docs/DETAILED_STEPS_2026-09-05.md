@@ -175,7 +175,9 @@ port. GridTracker2 was then launched directly
 
 Built from scratch: `~/.config/conky/conky.conf` plus two helper scripts,
 `~/.local/bin/ham-radio-freq.sh` and `~/.local/bin/ham-radio-mode.sh`,
-each checking `rigctld` (Hamlib `f`/`m` commands) first and falling back
+each checking `rigctld` (Hamlib `f`/`m` commands, sent over its raw TCP text
+port rather than via the `rigctl` client - see the 2026-09-18 G-90 note in
+the README) first and falling back
 to flrig's XML-RPC interface (`rig.get_vfo`, `rig.get_mode`) so the
 display stays accurate no matter which app currently has the radio.
 `~/.local/bin/ham-gps-grid.sh` computes a Maidenhead grid square from a

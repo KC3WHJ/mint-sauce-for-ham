@@ -322,6 +322,17 @@ and `g90.conf` in this repo for real, working examples. Fields:
   is at risk. `radio_profiles/g90.conf` documents this; the fix used to be
   a locally-patched flrig build, but that build was abandoned after further
   unexplained crashes, so this is currently unresolved upstream.
+- **Don't poll rigctld with the `rigctl` client on a timer (Xiegu G-90).**
+  Every `rigctl` invocation opens a new connection and sends a VFO
+  A/B/A probe to the radio. The Conky widget ran two of these every 2
+  seconds, so the G-90 clicked audibly and its VFOs flipped (e.g. 14 MHz
+  <-> 7 MHz for a quarter second) and its CAT indicator went red. Found by
+  running `rigctld -vvvv` and reading the `icom_set_vfo` lines. The Conky
+  helper scripts (`bin/ham-radio-freq.sh`, `bin/ham-radio-mode.sh`) now
+  send `f`/`m` over rigctld's raw TCP text port instead, which sends no
+  VFO probe. Any other script that polls should do the same, or hold one
+  connection open. JS8Call was a red herring - closing it only looked like
+  a fix.
 - **A shared DigiRig-style USB adapter reports the same `by-id` serial
   path regardless of which radio's cable is plugged into it.** If you swap
   radios on the same physical interface, don't assume yesterday's
