@@ -32,6 +32,11 @@ to use, so nothing else will work correctly until you've done this at least
 once per session (it does **not** persist automatically across a reboot —
 run it again after restarting the computer).
 
+Choosing a radio also applies that radio's audio settings (the sound-card
+names VARA, WSJT-X, JS8Call, Fldigi and Pat use) automatically, so you
+don't need to re-enter audio devices by hand in those programs after
+switching.
+
 ---
 
 ## Talking to people
@@ -125,6 +130,32 @@ reporting.
 - **First-time setup**: on a machine that's never run CommStat before,
   you'll be asked for your callsign, grid, state, and which groups/nets to
   watch — this only happens once, it's saved from then on.
+- **No radio? See the next section** — CommStat can also run against a web
+  SDR instead of your own radio.
+
+### JS8Call + CommStat from a web SDR (no radio needed)
+
+Listen for JS8 stations through someone else's receiver on the internet
+(websdr.org, kiwisdr.com, and similar) and see them in JS8Call and
+CommStat. Receive-only: no radio, no rig control, and no transmitting,
+so it's safe to use at any time. It's completely separate from your real
+JS8Call and CommStat, so **it doesn't break the "one radio program at a
+time" rule** and can run while a radio program is open.
+
+- **Start it**: double-click **Activate JS8Call WebSDR** on the Desktop.
+  It starts a separate JS8Call and a separate CommStat. When it says so,
+  open your WebSDR page in your browser, start its audio playing, press
+  Enter in the terminal window, and pick the browser's audio stream from
+  the menu that appears.
+- **Tell them apart**: the WebSDR CommStat's map uses the opposite theme
+  (dark vs. light) from your normal CommStat, and its lists start out
+  empty. It's connected only to the WebSDR JS8Call and never transmits or
+  sends acknowledgements.
+- **Stop it**: double-click **Deactivate JS8Call WebSDR**. This closes only
+  the WebSDR copies and removes the virtual audio device. Your normal
+  JS8Call and CommStat are never touched.
+- **Don't** open the normal **CommStat** icon expecting it to show
+  WebSDR traffic; it won't. Only Activate starts the WebSDR copy.
 
 ---
 
@@ -176,6 +207,10 @@ channel map" error rather than attempting anything; this is expected, not
 a bug — see `channel-tools/README.md` for why (and what adding either
 would take).
 
+**TX-500 MP:** the Channel Picker can't program this radio directly, but
+`channel-tools/README.md` explains two export routes: a CSV for Lab599's
+TRX Remote phone app and a `.mem` file for the TRX Mem desktop program.
+
 A desktop app listing every channel programmed into your radio's memory,
 organized by group, with a one-click "go to this channel" button — much
 faster than scrolling through memories on the radio's own small screen.
@@ -211,6 +246,9 @@ icons:
 
 - **Conky** shows a small always-on-screen overlay with station status
   (callsign, grid, current radio/frequency if available, system info).
+  Its frequency and mode are read in a way that doesn't disturb the radio
+  (an earlier version made the G-90 click and flip VFOs; see
+  Troubleshooting).
 - **ID Timer** is a 10-minute countdown reminder to identify (state your
   callsign) during extended transmissions, per FCC rules — it has
   Start/Cancel buttons in its small window, docked just below Conky.
@@ -273,6 +311,17 @@ instead of hunting for a terminal to do it by hand.
    machine before, see README.md's note on flrig's one-time per-rig setup
    step — this is a real, expected one-time step, not a sign anything's
    broken.
+
+### The radio clicks every few seconds and its frequency jumps
+
+Something is polling the radio through the `rigctl` command on a timer,
+which makes some radios (seen on the Xiegu G-90) flip between their A and
+B VFOs and turn CAT red. The built-in Conky display no longer does this. If
+you've added your own script or widget that runs `rigctl` repeatedly, have
+it talk to rigctld's raw port (see README.md's note on this) or keep one
+connection open instead. To find the culprit, close programs one at a time
+and see when the clicking stops; a helper that runs `rigctl` every couple of
+seconds will show up briefly in `ps`.
 
 ### Something won't start / shows old data
 
