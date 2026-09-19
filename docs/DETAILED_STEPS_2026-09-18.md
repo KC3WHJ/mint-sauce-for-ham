@@ -1,4 +1,4 @@
-# Detailed Steps — Audio Sync, TX-500 MP, Channel Exports, WebSDR JS8Call, G-90 Clicking (2026-09-15 to 2026-09-18)
+# Detailed Steps — Audio Sync, TX-500 MP, Channel Exports, WebSDR JS8Call, G-90 Clicking, AmRRON Fldigi/Flmsg (2026-09-15 to 2026-09-18)
 
 ## 1. Audio settings weren't following the radio
 
@@ -204,6 +204,100 @@ debug log stopped increasing and the user confirmed the clicking was gone
 with JS8Call running. The repo's `bin/` copies of both scripts were
 updated and the README has a caveat: don't poll rigctld with the `rigctl`
 client on a timer on Icom-style rigs.
+
+## 11. AmRRON Fldigi + Flmsg: radio and receive-only WebSDR versions
+
+Request: give Fldigi and Flmsg (AmRRON messaging) the same two capabilities
+as JS8Call - correct per-radio configuration for the real radio, and an
+isolated receive-only version fed from a WebSDR with Activate/Deactivate
+icons. Reference material: AmRRON's video "FLDIGI Setup for AmRRON Ops |
+Vid 2 | Receiving HF Digital Series" (the user saved its transcript and the
+video's settings were applied from it) and the Fldigi help PDF.
+
+Starting state found: the real `~/.fldigi` had just been regenerated with
+untouched defaults - audio backend "File I/O" (no sound card), no rig
+control, no callsign - so the radio version wasn't configured for anything
+yet.
+
+**Radio version**
+- `Start_Fldigi.sh` now exports `PULSE_SOURCE`/`PULSE_SINK` from the active
+  radio profile's `PULSE_INPUT`/`PULSE_OUTPUT`. Fldigi in PulseAudio mode has
+  no per-device setting (it uses the server default), so the environment is
+  the reliable way to aim it, and it follows Select Radio.
+- On an untouched config it switches the audio backend to PulseAudio and
+  rig control to the shared rigctld (Hamlib NET, 127.0.0.1:4532) - only when
+  those keys are still at their first-run values, never over a choice the
+  user made, and never while Fldigi is running (it rewrites its settings on
+  exit).
+- `bin/apply-amrron-fldigi.sh` applies AmRRON's settings from the video
+  (applied once to the real Fldigi, guarded by a marker file): NBEMS/flmsg
+  integration on (`AUTOEXTRACT`, `OPEN_FLMSG`, `FLMSG_TRANSFER_DIRECT`,
+  `OPEN_FLMSG_PRINT`, `FLMSG_PATHNAME`), sweet spot off
+  (`STARTATSWEETSPOT=0`), Rx ID on, AFC off, start mode Contestia 4/250
+  (`Cont-4/250` in Fldigi's names) with waterfall at 900 Hz, and the three
+  net frequencies added to `frequencies2.txt` (3.588, 7.110, 14.110 MHz).
+  Tested first on a scratch copy of the config; a diff showed only the
+  intended changes and a second run added no duplicates.
+- New `Start_Flmsg.sh` and a Flmsg Desktop icon.
+
+**Receive-only WebSDR version** (`Start_Fldigi_WebSDR.sh` /
+`Stop_Fldigi_WebSDR.sh`, Activate/Deactivate Fldigi WebSDR icons)
+- Separate folder `~/Fldigi-WebSDR` (Fldigi's `--home-dir`, `--config-dir`,
+  `--flmsg-dir`), seeded once from the real settings, no rig control, audio
+  in from `websdr_sink.monitor` and out to a discard sink (`websdr_txvoid`).
+- Two Fldigis can't share the default XML-RPC port, ARQ port or SysV
+  message-queue keys, so the copy uses 7363, 7323 and `--rx-ipc-key 9877
+  --tx-ipc-key 6790`. Flmsg talks to Fldigi over XML-RPC as a client (its
+  config has "Fldigi xmlrpc Addr/Port", default 7362), and its forms web
+  page starts at port 8080 by default - Pat's port - so the WebSDR Flmsg gets
+  `--server-port 8280`.
+- Verified live: Fldigi records from the WebSDR sink and plays to the discard
+  sink; ports as above; the real config files' checksums and timestamps were
+  identical before and after.
+- Visual cue: `-bg` colors do nothing in Fldigi, so the copy's callsign is
+  the placeholder `WEBSDR-RX`, which shows in the title bar and taskbar.
+- Fldigi asks "Confirm quit?" on a polite window close, so a Deactivate
+  that asked it to close got stuck and fell back to killing it (losing its
+  settings). Fixed by `CONFIRMEXIT=0` in the copy. Flmsg doesn't answer a
+  close request at all, so Deactivate stops it directly.
+- The Stop scripts share the audio sink: the JS8Call one keeps it while the
+  Fldigi one runs and vice versa.
+- Process-matching gotcha: `pgrep -f "fldigi .*--home-dir ..."` matched the
+  shell command line of the test that contained the same text, so the Start
+  script thought it was already running. Patterns are now anchored
+  (`^fldigi --home-dir ...`) in the three scripts that use them.
+
+**Flmsg first-run dialogs.** Flmsg blocks on a first-run "Select Default User
+Interface" dialog (Service Agency / Simple vs Communicator / Expert), then
+a configuration dialog. These are the user's one-time choices and aren't
+scripted. A hand-written `FLMSG.prefs` (keys `xmlrpc_address`/`xmlrpc_port`
+found in the binary) is seeded for the WebSDR Flmsg, but whether Flmsg reads
+that file's format was not confirmed - if the WebSDR Flmsg's "Fldigi xmlrpc
+Port" (Config) isn't 7363, set it there.
+
+**AmRRON custom forms.** Flmsg lists custom forms only from the `CUSTOM`
+folder of its data directory, so each Flmsg needs its own copy. The user
+downloaded AmRRON's V5.0 set (STATREP V5.1, STATREP V5.00, SITREP, SPOTREP,
+Blank Form, plus AmRRON's README; V5.00 STATREP is obsolete but kept to open
+old traffic, per AmRRON) and installed it into both `~/.nbems/CUSTOM` and
+`~/Fldigi-WebSDR/.nbems/CUSTOM` by hand (all three copies byte-identical).
+The set is now in the repo (`amrron-forms/`, unmodified, with a README
+crediting the source, amrron.com/amrron-forms). `bin/install-amrron-forms.sh`
+copies them into a given Flmsg folder without overwriting anything, run by
+`Start_Fldigi.sh`, `Start_Flmsg.sh` and `Start_Fldigi_WebSDR.sh`; the setup
+script deploys the bundle to `~/.local/share/amrron-forms`.
+
+**Setup script.** Generates `Start_Fldigi.sh` (with the per-radio audio,
+AmRRON profile and forms block, taken from a quoted heredoc so its
+variables stay literal), `Start_Flmsg.sh`, `Start_Fldigi_WebSDR.sh`,
+`Stop_Fldigi_WebSDR.sh` and the three Desktop shortcuts. Verified by running
+the script's own generator in a scratch home: the three new scripts are
+byte-identical to the live ones, and the regenerated `Start_Fldigi.sh`
+differs only by a cosmetic blank line.
+
+**Not yet verified.** No form has been sent or received end to end (no
+station to exchange with), and the browser-audio menu wasn't clicked
+through for the Fldigi version.
 
 ## Other work this session, outside this repo
 

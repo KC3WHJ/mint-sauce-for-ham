@@ -133,6 +133,26 @@ reporting.
 - **No radio? See the next section** — CommStat can also run against a web
   SDR instead of your own radio.
 
+### Fldigi + Flmsg from a web SDR (no radio needed)
+
+The same receive-only idea for AmRRON's Fldigi/Flmsg messaging: listen to a
+net through a web SDR and read the traffic, with no radio and no chance of
+transmitting. Separate from your real Fldigi and Flmsg, so it can run at the
+same time as them (and as the JS8Call WebSDR above).
+
+- **Start it**: double-click **Activate Fldigi WebSDR**. It opens a separate
+  Fldigi (title bar says **WEBSDR-RX**) and a separate Flmsg. When it says so,
+  play your WebSDR in the browser, press Enter in the terminal window, and
+  pick the browser's audio stream from the menu. If JS8Call WebSDR is
+  already running, the audio is already routed and you can skip that.
+- **Tune it**: the AmRRON net frequencies are in its frequency list (book
+  icon) - but a web SDR has its own tuning, so tune the web SDR (USB) to
+  the net frequency, then match Fldigi's waterfall to the 900 Hz position.
+- **Stop it**: double-click **Deactivate Fldigi WebSDR**. This closes only
+  the WebSDR Fldigi and Flmsg; your real ones are never touched.
+- Its Flmsg has its **own copy of the AmRRON forms** and its own saved
+  messages, separate from your radio Flmsg's.
+
 ### JS8Call + CommStat from a web SDR (no radio needed)
 
 Listen for JS8 stations through someone else's receiver on the internet
@@ -172,16 +192,31 @@ own net structure. Comes with two companion tools:
 - **Flamp** — sends/receives files and repeated broadcasts layered on top
   of Fldigi.
 
-Find Fldigi on the Desktop; Flmsg and Flamp are in the applications menu
-(they're typically opened *from inside* Fldigi's own File menu, rather
-than launched standalone, since they work together).
+Find Fldigi and Flmsg on the Desktop; Flamp is in the applications menu.
+Fldigi also opens Flmsg by itself when a form arrives. Flmsg asks once, the
+first time, whether you want the "Service Agency / Simple" or "Communicator /
+Expert" screen, and for your details - that's a one-time choice.
 
 - **Start it**: double-click **Fldigi**.
 - **Use it**: pick a mode from the mode selector, watch the waterfall for
   activity, and use the transmit/receive panes like a simple chat window.
-  For AmRRON nets specifically, they use Contestia 4/250 — check
-  amrron.com's current net schedule for frequencies, since these do shift
-  over time.
+  For AmRRON nets specifically, they use Contestia 4/250 - open the
+  frequency list (the **book icon**) and double-click **3.588**, **7.110**
+  or **14.110 MHz** (80/40/20m): it sets the frequency, the mode and the
+  waterfall position (900 Hz) in one step. Traffic is normally sent in
+  MFSK32; with **RxID** on (green, top right) Fldigi switches mode for you
+  and the sending station returns the net to Contestia 4/250 afterward.
+  Keep **AFC off** (gray), and set the **squelch** slider just above the
+  noise (lower it until squelch turns green, then raise it until it turns
+  yellow) or Fldigi will "decode" noise into gibberish. These AmRRON
+  settings are already applied for you; check amrron.com's current net
+  schedule, since frequencies do shift over time.
+- **AmRRON forms in Flmsg**: AmRRON's custom forms (STATREP, SITREP,
+  SPOTREP, Blank Form) are already installed - in Flmsg, choose them from
+  the custom forms list. Keep the older versions there; you need them to
+  open traffic from stations that haven't updated.
+- **No radio? Use the WebSDR version** (next section) - Fldigi + Flmsg fed
+  from a web SDR, receive-only.
 
 ### vARIM — lightweight, open-source VARA HF chat
 

@@ -644,6 +644,11 @@ section "Installing Fldigi suite (Fldigi, Flmsg, Flamp) - AmRRON digital comms"
 # shared with VarAC.
 sudo apt install -y fldigi flmsg flamp
 
+# AmRRON's custom Flmsg forms (bundled in amrron-forms/): deployed here, and
+# installed into each Flmsg's CUSTOM folder by the launchers.
+mkdir -p "$HOME/.local/share/amrron-forms"
+cp "$SCRIPT_DIR/amrron-forms/"*.html "$HOME/.local/share/amrron-forms/" 2>/dev/null || true
+
 # Fldigi's first-run Configuration Wizard is a genuinely modal,
 # multi-step interactive dialog that can't be scripted through (confirmed
 # 2026-09-13 on real hardware): it blocks fldigi_def.xml from ever being
@@ -871,7 +876,8 @@ cp "$SCRIPT_DIR/bin/"*.sh "$HOME/.local/bin/"
 chmod +x "$HOME/.local/bin/select-radio.sh" "$HOME/.local/bin/ham-radio-name.sh" \
     "$HOME/.local/bin/Start_Flrig_Radio.sh" "$HOME/.local/bin/sync-radio-audio.sh" \
     "$HOME/.local/bin/ham-radio-freq.sh" "$HOME/.local/bin/ham-radio-mode.sh" \
-    "$HOME/.local/bin/ham-gps-grid.sh"
+    "$HOME/.local/bin/ham-gps-grid.sh" "$HOME/.local/bin/apply-amrron-fldigi.sh" \
+    "$HOME/.local/bin/install-amrron-forms.sh"
 if [ -d "$SCRIPT_DIR/radio_profiles" ]; then
     cp -n "$SCRIPT_DIR/radio_profiles/"*.conf "$HOME/radio_profiles/" 2>/dev/null || true
     cp -n "$SCRIPT_DIR/radio_profiles/audio/"*.sh "$HOME/radio_profiles/audio/" 2>/dev/null || true
@@ -1104,6 +1110,59 @@ section "Start_WSJTX.sh / Start_JS8Call.sh"
 for APP in WSJTX:wsjtx JS8Call:js8call Fldigi:fldigi; do
     SCRIPT_NAME="${APP%%:*}"
     BIN="${APP##*:}"
+    # Fldigi only: per-radio audio (PULSE_SOURCE/PULSE_SINK from the active
+    # profile), one-time AmRRON settings, and AmRRON's Flmsg forms. Read in
+    # from a quoted heredoc, so its $variables stay literal in the script
+    # that gets written (an unquoted heredoc doesn't re-expand them).
+    EXTRA=""
+    if [ "$SCRIPT_NAME" = "Fldigi" ]; then
+        read -r -d '' EXTRA <<'FLDIGI_EXTRA_EOF' || true
+# Fldigi in PulseAudio mode uses the server's default devices, so it can't be
+# pointed at a radio's sound card from its settings file. Point it at the
+# active radio's codec through the environment instead (the same PULSE_INPUT/
+# PULSE_OUTPUT names sync-radio-audio.sh gives WSJT-X/JS8Call), so switching
+# radios with Select Radio just works and card renumbering can't break it.
+FLDIGI_XML="$HOME/.fldigi/fldigi_def.xml"
+# Only when Fldigi is still on its untouched first-run defaults (audio =
+# "File I/O", no rig control chosen): switch to PulseAudio and to the shared
+# rigctld, the same settings Setup_Ham_Radio_Stack.sh applies. Never
+# overrides a choice you made, and skipped while Fldigi is open (it rewrites
+# its settings on exit). The receive-only WebSDR copy is a different process
+# (has --home-dir on its command line), so it doesn't count here.
+if [ -f "$FLDIGI_XML" ] && ! pgrep -fx fldigi > /dev/null; then
+    if grep -q '<AUDIOIO>3</AUDIOIO>' "$FLDIGI_XML"; then
+        sed -i 's|<AUDIOIO>3</AUDIOIO>|<AUDIOIO>2</AUDIOIO>|' "$FLDIGI_XML"
+        echo "Fldigi audio: File I/O (unconfigured) -> PulseAudio."
+    fi
+    # AmRRON's recommended settings (NBEMS/flmsg, Rx ID, AFC off, Contestia
+    # 4/250 @ 900 Hz, 80/40/20m net frequencies), applied once - the marker
+    # file stops later launches from undoing anything you change by hand.
+    if [ ! -f "$HOME/.fldigi/.amrron-profile-applied" ] \
+       && [ -x "$HOME/.local/bin/apply-amrron-fldigi.sh" ]; then
+        "$HOME/.local/bin/apply-amrron-fldigi.sh" "$HOME/.fldigi" \
+            && touch "$HOME/.fldigi/.amrron-profile-applied"
+    fi
+    if grep -q '<CHKUSEHAMLIBIS>0<' "$FLDIGI_XML" \
+       && grep -q '<CHKUSERIGCATIS>0<' "$FLDIGI_XML" \
+       && grep -q '<CHKUSEXMLRPCIS>0<' "$FLDIGI_XML"; then
+        sed -i \
+            -e 's|<CHKUSEHAMLIBIS>0</CHKUSEHAMLIBIS>|<CHKUSEHAMLIBIS>1</CHKUSEHAMLIBIS>|' \
+            -e 's|<HAMRIGDEVICE>.*</HAMRIGDEVICE>|<HAMRIGDEVICE>127.0.0.1:4532</HAMRIGDEVICE>|' \
+            -e 's|<HAMRIGMODEL>.*</HAMRIGMODEL>|<HAMRIGMODEL>2</HAMRIGMODEL>|' \
+            "$FLDIGI_XML"
+        echo "Fldigi rig control: none -> Hamlib NET rigctl 127.0.0.1:4532."
+    fi
+fi
+
+# AmRRON's custom Flmsg forms, into the Flmsg that Fldigi opens when a message
+# arrives (never overwrites anything already in its CUSTOM folder).
+[ -x "$HOME/.local/bin/install-amrron-forms.sh" ] && "$HOME/.local/bin/install-amrron-forms.sh" "$HOME/.nbems"
+
+if [ -n "$PULSE_INPUT" ] && [ -n "$PULSE_OUTPUT" ]; then
+    export PULSE_SOURCE="$PULSE_INPUT" PULSE_SINK="$PULSE_OUTPUT"
+fi
+FLDIGI_EXTRA_EOF
+    fi
 cat > "$HOME/Start_$SCRIPT_NAME.sh" <<EOF
 #!/bin/bash
 set -e
@@ -1182,6 +1241,7 @@ if [ -x "\$HOME/.local/bin/sync-radio-audio.sh" ]; then
     "\$HOME/.local/bin/sync-radio-audio.sh" || true
 fi
 
+$EXTRA
 $BIN
 EOF
     chmod +x "$HOME/Start_$SCRIPT_NAME.sh"
@@ -1334,7 +1394,11 @@ fi
 echo
 echo "=== Removing virtual audio sink ==="
 MODULE_ID=$(pactl list short modules | awk -v s="sink_name=$SINK_NAME" '$0 ~ s {print $1}')
-if [ -n "$MODULE_ID" ]; then
+if pgrep -f "^fldigi --home-dir $HOME/Fldigi-WebSDR" > /dev/null; then
+    # Shared with the Fldigi WebSDR setup (Start_Fldigi_WebSDR.sh) - its
+    # Deactivate removes the sink once nothing is using it.
+    echo "$SINK_NAME kept - the Fldigi WebSDR setup is still using it."
+elif [ -n "$MODULE_ID" ]; then
     pactl unload-module "$MODULE_ID"
     echo "Removed $SINK_NAME."
 else
@@ -1530,6 +1594,336 @@ chmod +x "$HOME/Desktop/Deactivate JS8Call WebSDR.desktop"
 gio set "$HOME/Desktop/Deactivate JS8Call WebSDR.desktop" "metadata::trusted" true 2>/dev/null || true
 
 echo "Start_JS8Call_WebSDR.sh, Stop_JS8Call_WebSDR.sh, Start_CommStat_WebSDR.sh, and their Desktop shortcuts written."
+
+section "Start_Flmsg.sh + Fldigi/Flmsg receive-only WebSDR (Activate/Deactivate)"
+# Same idea as the JS8Call WebSDR section above, for Fldigi + Flmsg (AmRRON
+# messaging): a completely separate Fldigi/Flmsg pair in ~/Fldigi-WebSDR
+# reading a WebSDR through the shared virtual sink, with no rig control, its
+# own ports (XML-RPC 7363 / ARQ 7323) and its own Flmsg CUSTOM forms folder,
+# so it can run alongside the real radio Fldigi/Flmsg without touching them.
+# AmRRON settings come from bin/apply-amrron-fldigi.sh (from AmRRON's
+# "FLDIGI Setup for AmRRON Ops" video) and their forms from amrron-forms/.
+cat > "$HOME/Start_Flmsg.sh" <<'FLMSG_START_EOF'
+#!/bin/bash
+# Opens Flmsg (AmRRON message forms: ICS-213, radiograms, etc.) for the real,
+# radio-connected Fldigi. Flmsg hands finished messages to Fldigi over
+# XML-RPC on the default port 7362, so open Fldigi too (Desktop icon) when
+# you want to send or receive over the air; Fldigi also opens Flmsg by itself
+# when a message arrives. For the receive-only web-SDR version, use
+# "Activate Fldigi WebSDR" instead - it starts its own, separate Flmsg.
+# AmRRON's custom forms into this Flmsg's CUSTOM folder (never overwrites).
+[ -x "$HOME/.local/bin/install-amrron-forms.sh" ] && "$HOME/.local/bin/install-amrron-forms.sh" "$HOME/.nbems"
+if pgrep -fx flmsg > /dev/null; then
+    echo "Flmsg is already running."
+    exit 0
+fi
+exec flmsg
+FLMSG_START_EOF
+chmod +x "$HOME/Start_Flmsg.sh"
+
+cat > "$HOME/Start_Fldigi_WebSDR.sh" <<'FLDIGI_WEBSDR_START_EOF'
+#!/bin/bash
+# Receive-only Fldigi + Flmsg fed from a web-based SDR (websdr.org, kiwisdr,
+# etc.) instead of this station's own radio - the Fldigi/Flmsg counterpart of
+# Start_JS8Call_WebSDR.sh (same virtual sink trick: a browser tab plays into
+# a PulseAudio/PipeWire null sink whose monitor Fldigi reads as its input).
+#
+# Deliberately isolated from the real radio setup, so it can run at the same
+# time as the real Fldigi/Flmsg and never touches them:
+#   - its own home/config/NBEMS folders in ~/Fldigi-WebSDR (.fldigi and
+#     .nbems inside it) - your real ~/.fldigi and ~/.nbems are only READ,
+#     once, to seed the copy's settings (callsign etc.)
+#   - NO rig control at all (no Hamlib/flrig/RigCAT) - it can't key a radio
+#   - its transmit audio goes to a throwaway null sink (websdr_txvoid), so
+#     even clicking T/R or a macro makes no sound and reaches no radio
+#   - its own XML-RPC port (7363, real Fldigi is 7362), ARQ port (7323 vs
+#     7322) and message-queue keys, so two Fldigis - and their Flmsgs -
+#     don't collide or hand each other's messages over
+#   - its window title reads "fldigi ... - WEBSDR-RX" (a placeholder callsign
+#     that also makes clear it's receive-only), so you can tell it from the
+#     real one; it also closes without the "Confirm quit?" prompt
+# Fldigi's audio device is chosen by the PULSE_SOURCE/PULSE_SINK environment
+# variables (Fldigi in PulseAudio mode uses the server default), not by its
+# settings file - same approach as Start_Fldigi.sh for the real radio.
+set -e
+
+SINK_NAME="websdr_sink"
+TX_VOID="websdr_txvoid"
+WHOME="$HOME/Fldigi-WebSDR"
+REAL_XML="$HOME/.fldigi/fldigi_def.xml"
+REAL_PREFS="$HOME/.fldigi/fldigi.prefs"
+XMLRPC_PORT=7363
+ARQ_PORT=7323
+RX_KEY=9877
+TX_KEY=6790
+
+if pgrep -f "^fldigi --home-dir $WHOME" > /dev/null; then
+    echo "Fldigi (WebSDR copy) is already running."
+    exit 0
+fi
+
+if [ ! -f "$REAL_XML" ]; then
+    echo "Your real Fldigi hasn't been set up yet ($REAL_XML doesn't exist)."
+    echo "Launch Fldigi once (Desktop icon), click through its first-run"
+    echo "wizard, close it with File > Exit, then run this again."
+    exit 1
+fi
+
+echo "=== Setting up virtual audio sinks ==="
+for s in "$SINK_NAME:WebSDR_Sink" "$TX_VOID:WebSDR_Fldigi_TX_Discard"; do
+    name="${s%%:*}"; desc="${s##*:}"
+    if pactl list short sinks | grep -q "$name"; then
+        echo "$name already exists, reusing it."
+    else
+        pactl load-module module-null-sink sink_name="$name" \
+            sink_properties=device.description="$desc" > /dev/null
+        echo "Created virtual sink: $name"
+    fi
+done
+
+if [ ! -f "$WHOME/.fldigi/fldigi_def.xml" ]; then
+    echo
+    echo "First run: seeding the WebSDR Fldigi's settings from your real one..."
+    mkdir -p "$WHOME/.fldigi" "$WHOME/.nbems"
+    cp "$REAL_XML" "$WHOME/.fldigi/fldigi_def.xml"
+    [ -f "$REAL_PREFS" ] && cp "$REAL_PREFS" "$WHOME/.fldigi/fldigi.prefs"
+    # PulseAudio mode (device comes from PULSE_SOURCE/PULSE_SINK below), all
+    # rig control off, own ports, no first-run leftovers.
+    sed -i \
+        -e 's|<AUDIOIO>.*</AUDIOIO>|<AUDIOIO>2</AUDIOIO>|' \
+        -e 's|<CHKUSEHAMLIBIS>.*</CHKUSEHAMLIBIS>|<CHKUSEHAMLIBIS>0</CHKUSEHAMLIBIS>|' \
+        -e 's|<CHKUSERIGCATIS>.*</CHKUSERIGCATIS>|<CHKUSERIGCATIS>0</CHKUSERIGCATIS>|' \
+        -e 's|<CHKUSEXMLRPCIS>.*</CHKUSEXMLRPCIS>|<CHKUSEXMLRPCIS>0</CHKUSEXMLRPCIS>|' \
+        -e "s|<XMLRPC_PORT>.*</XMLRPC_PORT>|<XMLRPC_PORT>$XMLRPC_PORT</XMLRPC_PORT>|" \
+        -e "s|<ARQ_PORT>.*</ARQ_PORT>|<ARQ_PORT>$ARQ_PORT</ARQ_PORT>|" \
+        -e 's|<MYCALL>.*</MYCALL>|<MYCALL>WEBSDR-RX</MYCALL>|' \
+        -e 's|<CONFIRMEXIT>.*</CONFIRMEXIT>|<CONFIRMEXIT>0</CONFIRMEXIT>|' \
+        "$WHOME/.fldigi/fldigi_def.xml"
+    echo "Seeded $WHOME/.fldigi (no rig control, PulseAudio, ports $XMLRPC_PORT/$ARQ_PORT)."
+    # AmRRON's recommended Fldigi settings (NBEMS/flmsg, Rx ID, AFC off,
+    # Contestia 4/250 @ 900 Hz, 80/40/20m net frequencies) - see the script.
+    if [ -x "$HOME/.local/bin/apply-amrron-fldigi.sh" ]; then
+        "$HOME/.local/bin/apply-amrron-fldigi.sh" "$WHOME/.fldigi"
+    fi
+fi
+mkdir -p "$WHOME/.nbems"
+# AmRRON's custom Flmsg forms into the WebSDR Flmsg's own CUSTOM folder
+# (never overwrites anything already there).
+[ -x "$HOME/.local/bin/install-amrron-forms.sh" ] && "$HOME/.local/bin/install-amrron-forms.sh" "$WHOME/.nbems"
+
+# Flmsg talks to Fldigi over XML-RPC; point the WebSDR Flmsg at the WebSDR
+# Fldigi's port (its default is the real Fldigi's 7362). Only written when
+# there's no prefs file yet, so anything you change in Flmsg is kept.
+if [ ! -f "$WHOME/.nbems/FLMSG.prefs" ]; then
+    cat > "$WHOME/.nbems/FLMSG.prefs" <<EOF
+; FLTK preferences file format 1.0
+; vendor: w1hkj.com
+; application: flmsg
+
+[.]
+
+xmlrpc_address:127.0.0.1
+xmlrpc_port:$XMLRPC_PORT
+EOF
+fi
+
+echo
+echo "=== Starting Fldigi (WebSDR profile - separate from your radio Fldigi) ==="
+cd "$WHOME"
+PULSE_SOURCE="$SINK_NAME.monitor" PULSE_SINK="$TX_VOID" \
+    nohup fldigi --home-dir "$WHOME" --config-dir "$WHOME/.fldigi" \
+        --flmsg-dir "$WHOME/.nbems" \
+        --xmlrpc-server-port "$XMLRPC_PORT" --arq-server-port "$ARQ_PORT" \
+        --rx-ipc-key "$RX_KEY" --tx-ipc-key "$TX_KEY" \
+        > "$WHOME/fldigi-websdr.log" 2>&1 &
+disown
+for i in $(seq 1 20); do
+    ss -tln | grep -q ":$XMLRPC_PORT " && break
+    sleep 1
+done
+
+echo
+echo "=== Starting Flmsg (WebSDR profile) ==="
+if pgrep -f "^flmsg --flmsg-dir $WHOME" > /dev/null; then
+    echo "Already running."
+else
+    # --server-port: Flmsg's forms web page starts at 8080 by default, which is
+    # Pat Winlink's port - use a different range so nothing collides.
+    nohup flmsg --flmsg-dir "$WHOME/.nbems" --server-port 8280 \
+        > "$WHOME/flmsg-websdr.log" 2>&1 &
+    disown
+fi
+
+echo
+echo "=== Route your browser's audio into Fldigi ==="
+if pactl -f json list sink-inputs | python3 -c '
+import json,sys,subprocess
+sinks={s["name"]:s["index"] for s in json.loads(subprocess.run(["pactl","-f","json","list","sinks"],capture_output=True,text=True).stdout)}
+want=sinks.get("'"$SINK_NAME"'")
+sys.exit(0 if any(i.get("sink")==want for i in json.load(sys.stdin)) else 1)'; then
+    echo "A stream is already routed into $SINK_NAME (from an earlier Activate) -"
+    echo "Fldigi will hear it too. Nothing more to do."
+    echo
+    echo "When done, use 'Deactivate Fldigi WebSDR' to clean up."
+    exit 0
+fi
+echo "1. Open your WebSDR site (e.g. websdr.org, kiwisdr.com) in a browser"
+echo "   and start playing audio."
+echo "2. Press Enter here once it's playing."
+read -p ""
+
+PYEOF=$(python3 - <<'PYSCRIPT'
+import json, subprocess
+out = subprocess.run(["pactl", "-f", "json", "list", "sink-inputs"],
+                     capture_output=True, text=True).stdout
+inputs = json.loads(out) if out.strip() else []
+if not inputs:
+    print("NONE")
+else:
+    for i in inputs:
+        props = i.get("properties", {})
+        label = props.get("application.name", "unknown app")
+        media = props.get("media.name", "")
+        if media:
+            label += f" - {media}"
+        print(f'{i["index"]}\t{label}')
+PYSCRIPT
+)
+
+if [ "$PYEOF" = "NONE" ] || [ -z "$PYEOF" ]; then
+    echo "No audio streams currently playing - start the WebSDR audio first,"
+    echo "then re-run this script (it's safe to re-run; everything already up"
+    echo "will just be reused)."
+    exit 1
+fi
+
+DIALOG_ARGS=()
+while IFS=$'\t' read -r idx label; do
+    DIALOG_ARGS+=("$idx" "$label")
+done <<< "$PYEOF"
+
+CHOICE=$(dialog --clear --menu "Which audio stream is the WebSDR?" 15 70 6 "${DIALOG_ARGS[@]}" 3>&1 1>&2 2>&3)
+clear
+if [ -z "$CHOICE" ]; then
+    echo "No selection made - nothing routed. Re-run this script to try again."
+    exit 1
+fi
+
+pactl move-sink-input "$CHOICE" "$SINK_NAME"
+echo "Routed stream $CHOICE into $SINK_NAME - Fldigi (WebSDR profile) should"
+echo "start showing the signal on its waterfall."
+echo
+echo "When done, use 'Deactivate Fldigi WebSDR' to clean up."
+FLDIGI_WEBSDR_START_EOF
+chmod +x "$HOME/Start_Fldigi_WebSDR.sh"
+
+cat > "$HOME/Stop_Fldigi_WebSDR.sh" <<'FLDIGI_WEBSDR_STOP_EOF'
+#!/bin/bash
+# Cleans up the receive-only Fldigi/Flmsg WebSDR setup. Only touches the
+# WebSDR copies - matched by their own folder (~/Fldigi-WebSDR) in the
+# command line, which a real, radio-connected Fldigi/Flmsg never has - and
+# the virtual audio sinks.
+WHOME="$HOME/Fldigi-WebSDR"
+
+# Ask a window's owner to close it (so Fldigi/Flmsg save their settings the
+# way File > Exit would), then fall back to a plain kill if it's still there.
+close_matching() {
+    local label="$1" pattern="$2" pid wid
+    local pids
+    pids=$(pgrep -f "$pattern")
+    if [ -z "$pids" ]; then
+        echo "$label: not running."
+        return
+    fi
+    for pid in $pids; do
+        # xdotool (not wmctrl -l) finds every window the process owns,
+        # including title-less ones like Flmsg's main window.
+        for wid in $(xdotool search --pid "$pid" 2>/dev/null); do
+            wmctrl -ic "$(printf '0x%x' "$wid")" 2>/dev/null
+        done
+    done
+    for i in 1 2 3 4 5 6; do
+        pgrep -f "$pattern" > /dev/null || break
+        sleep 1
+    done
+    if pgrep -f "$pattern" > /dev/null; then
+        pkill -f "$pattern"
+        echo "$label: didn't close on request, stopped."
+    else
+        echo "$label: closed."
+    fi
+}
+
+echo "=== Stopping Flmsg (WebSDR copy) ==="
+close_matching "Flmsg" "^flmsg --flmsg-dir $WHOME"
+
+echo
+echo "=== Stopping Fldigi (WebSDR copy) ==="
+close_matching "Fldigi" "^fldigi --home-dir $WHOME"
+
+echo
+echo "=== Removing virtual audio sinks ==="
+unload_sink() {
+    local name="$1" id
+    id=$(pactl list short modules | awk -v s="sink_name=$name" '$0 ~ s {print $1}')
+    if [ -n "$id" ]; then
+        pactl unload-module "$id"
+        echo "Removed $name."
+    else
+        echo "$name was not loaded."
+    fi
+}
+unload_sink websdr_txvoid
+# The WebSDR audio sink is shared with the JS8Call WebSDR setup - leave it if
+# that one is still running.
+if pgrep -f "js8call -r WebSDR" > /dev/null; then
+    echo "websdr_sink kept - the JS8Call WebSDR setup is still using it."
+else
+    unload_sink websdr_sink
+fi
+
+echo
+echo "Done. Your radio-connected Fldigi/Flmsg were never touched."
+FLDIGI_WEBSDR_STOP_EOF
+chmod +x "$HOME/Stop_Fldigi_WebSDR.sh"
+
+mkdir -p "$HOME/Desktop"
+cat > "$HOME/Desktop/Flmsg.desktop" <<EOF
+[Desktop Entry]
+Name=Flmsg
+Comment=AmRRON message forms for the radio Fldigi (ICS-213, radiograms, etc.)
+Exec=$HOME/Start_Flmsg.sh
+Type=Application
+StartupNotify=true
+Icon=flmsg
+Terminal=false
+Categories=HamRadio;
+EOF
+cat > "$HOME/Desktop/Activate Fldigi WebSDR.desktop" <<EOF
+[Desktop Entry]
+Name=Activate Fldigi WebSDR
+Comment=Receive-only Fldigi + Flmsg from a web SDR (no radio needed)
+Exec=bash -c "\$HOME/Start_Fldigi_WebSDR.sh; echo; read -p 'Press Enter to close...'"
+Type=Application
+Terminal=true
+Icon=network-wireless
+Categories=HamRadio;
+EOF
+cat > "$HOME/Desktop/Deactivate Fldigi WebSDR.desktop" <<EOF
+[Desktop Entry]
+Name=Deactivate Fldigi WebSDR
+Comment=Closes the WebSDR Fldigi + Flmsg (does not touch your radio Fldigi)
+Exec=bash -c "\$HOME/Stop_Fldigi_WebSDR.sh; echo; read -p 'Press Enter to close...'"
+Type=Application
+Terminal=true
+Icon=process-stop
+Categories=HamRadio;
+EOF
+for f in "Flmsg" "Activate Fldigi WebSDR" "Deactivate Fldigi WebSDR"; do
+    chmod +x "$HOME/Desktop/$f.desktop"
+    gio set "$HOME/Desktop/$f.desktop" "metadata::trusted" true 2>/dev/null || true
+done
+echo "Start_Flmsg.sh, Start_Fldigi_WebSDR.sh, Stop_Fldigi_WebSDR.sh, and their Desktop shortcuts written."
 
 section "stop-pat.sh"
 mkdir -p "$HOME/.local/bin"

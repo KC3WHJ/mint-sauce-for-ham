@@ -128,6 +128,83 @@ substitute for amrron.com's current SOI (Signal Operating Instructions).**
   explicitly support running receive-only for situational awareness
   without being a licensed operator (a receiver or SDR is enough).
 
+### AmRRON Fldigi/Flmsg profile, custom forms, and receive-only WebSDR
+
+Added 2026-09-18, following AmRRON's own video *"FLDIGI Setup for AmRRON Ops
+| Vid 2 | Receiving HF Digital Series"* and its Flmsg companion.
+
+- **AmRRON's Fldigi settings** are applied by
+  `bin/apply-amrron-fldigi.sh` (deployed to `~/.local/bin`), which patches a
+  Fldigi config folder's `fldigi_def.xml`/`fldigi.prefs`/`frequencies2.txt`:
+  NBEMS interface on with "open with flmsg" and "open in browser" and the
+  flmsg path set; the "always start new modems at these frequencies"
+  (sweet spot) option **off**; Rx ID on; AFC **off**; start on
+  **Contestia 4/250** with the waterfall carrier at **900 Hz**; and the AmRRON
+  net frequencies added to Fldigi's frequency list - 80m **3.588**, 40m
+  **7.110**, 20m **14.110 MHz**, each Contestia 4/250 at 900 Hz (traffic is
+  normally sent in MFSK32, announced by TX ID, after which the sending
+  station returns the net to Contestia 4/250). The 900 Hz waterfall
+  position is the *net's* position; it is a different (lower) number than the
+  general 1000-1500 Hz Fldigi convention in the first bullet above. Not set
+  by the script because they're per-station: callsign (a tactical call or
+  `N0CALL` is fine when only receiving), the squelch level (set it against
+  your real noise floor: lower the slider until squelch turns green, then
+  raise it just above the noise until it goes yellow - otherwise Fldigi
+  decodes noise into gibberish), and the audio device.
+  `Start_Fldigi.sh` applies this once to the real Fldigi (a marker file,
+  `~/.fldigi/.amrron-profile-applied`, keeps later launches from undoing
+  changes you make by hand).
+- **Fldigi's audio device** is chosen through the `PULSE_SOURCE` /
+  `PULSE_SINK` environment variables, set by `Start_Fldigi.sh` from the
+  active radio's `PULSE_INPUT`/`PULSE_OUTPUT` (the same names
+  `sync-radio-audio.sh` gives WSJT-X/JS8Call), because Fldigi in PulseAudio
+  mode just uses the server's default devices and has no per-device setting.
+  Choosing a radio with Select Radio therefore also points Fldigi at that
+  radio's sound card, and a card renumbering can't break it. On first
+  launch, if Fldigi is still on its untouched defaults (audio "File I/O",
+  no rig control), `Start_Fldigi.sh` also switches it to PulseAudio and to
+  the shared `rigctld`.
+- **AmRRON custom forms** for Flmsg live in `amrron-forms/` (STATREP V5.1
+  and V5.00, SITREP, SPOTREP, Blank Form - AmRRON's V5.0 set, 27 Nov 2024,
+  with their own README; source <https://amrron.com/amrron-forms/>). Flmsg
+  only offers custom forms found in the `CUSTOM` folder of its data
+  directory, so `bin/install-amrron-forms.sh` copies them there - never
+  overwriting anything already present - for each Flmsg on this station
+  (see below). Keep the older versions: AmRRON asks members to, so traffic
+  from stations that haven't updated can still be opened.
+- **Flmsg (radio)** - **Flmsg** Desktop icon (`Start_Flmsg.sh`), for
+  composing/reading forms with the real, radio-connected Fldigi. Fldigi also
+  opens Flmsg by itself when a message arrives. Flmsg's first launch asks
+  once for its user interface ("Service Agency / Simple" vs "Communicator /
+  Expert") and personal details; that's a one-time human choice and isn't
+  scripted.
+- **Receive-only Fldigi + Flmsg via a WebSDR** - **Activate Fldigi WebSDR** /
+  **Deactivate Fldigi WebSDR** (Desktop shortcuts): the Fldigi/Flmsg
+  counterpart of the JS8Call WebSDR feature above, using the same virtual
+  audio sink. Everything is separate from the real radio Fldigi/Flmsg, so
+  both can run at once:
+  - its own folder, `~/Fldigi-WebSDR` (`.fldigi` and `.nbems` inside it),
+    seeded once from your real Fldigi settings then given the AmRRON profile;
+    Fldigi is started with `--home-dir/--config-dir/--flmsg-dir` pointing
+    there, and Flmsg with its own `--flmsg-dir`, so each has its **own
+    `CUSTOM` forms folder** (`~/Fldigi-WebSDR/.nbems/CUSTOM`)
+  - **no rig control** (no Hamlib/flrig/RigCAT) and its transmit audio goes
+    to a throwaway `websdr_txvoid` null sink, so nothing can key a radio or
+    make a sound
+  - its own XML-RPC port **7363** and ARQ port **7323** (real Fldigi: 7362 /
+    7322), and its own message-queue keys (`--rx-ipc-key 9877 --tx-ipc-key
+    6790`), so two Fldigis don't collide; the WebSDR Flmsg is pointed at
+    7363 and its forms web page at **8280** (Flmsg's default, 8080, is Pat's
+    port)
+  - its window title reads "fldigi ... - WEBSDR-RX" (a placeholder callsign)
+    and it closes without the "Confirm quit?" prompt, which is why Deactivate
+    can close it cleanly (Flmsg doesn't answer a close request, so Deactivate
+    stops it directly)
+  - the shared `websdr_sink` is only removed when neither the JS8Call nor the
+    Fldigi WebSDR setup is still running
+  - **Not yet tested with a real over-the-air/WebSDR message** (the form
+    round trip) - only the plumbing and settings above have been verified.
+
 ## Receive-only JS8Call via a web SDR (no radio needed at all)
 
 **Activate JS8Call WebSDR** / **Deactivate JS8Call WebSDR** (Desktop
