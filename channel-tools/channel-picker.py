@@ -81,6 +81,29 @@ def stop_conflicting_processes() -> list[str]:
     return stopped
 
 
+def read_civ_reply(ser: Serial, sent_frame: bytes) -> bytes:
+    """Reads CI-V frames until it finds the radio's own reply, skipping an
+    echoed copy of our own outgoing command first if the radio's "CI-V USB
+    Echo Back" setting is on. Confirmed live 2026-09-24 (IC-705): with echo
+    back on, the radio sends the exact bytes we just wrote back as their own
+    FD-terminated frame BEFORE the real \\xfb/\\xfa reply -- reading only up
+    to the first \\xfd then picks up that echo instead of the actual result
+    (silently wrong, not just occasionally slow: the echo frame's last data
+    byte is never \\xfb, so a strict "must be \\xfb" check always failed,
+    while a looser "must not be \\xfa" check would always have looked like
+    success without ever checking the real reply). Works the same whether
+    echo back is on or off -- when it's off, the first frame IS the reply
+    and is returned immediately, same as before."""
+    for _ in range(3):  # one echo (if any) + the real reply, plus one spare
+        chunk = ser.read_until(expected=b"\xfd")
+        if not chunk:
+            return b""
+        if chunk == sent_frame:
+            continue  # our own echoed command -- keep reading
+        return chunk
+    return b""
+
+
 def select_memory_civ(profile: dict, group: int, slot: int, ser: Serial):
     """Icom CI-V memory-select (cmd 08/08 A0)."""
     transceiver_addr = bytes.fromhex(profile["CIV_ADDR"])
@@ -90,7 +113,7 @@ def select_memory_civ(profile: dict, group: int, slot: int, ser: Serial):
     for cmd, data in frames:
         frame = b"\xfe\xfe" + transceiver_addr + CONTROLLER_ADDR + cmd + data + b"\xfd"
         ser.write(frame)
-        reply = ser.read_until(expected=b"\xfd")
+        reply = read_civ_reply(ser, frame)
         if not reply or reply[-2:-1] != b"\xfb":
             # \xfb = OK, \xfa = NG - but treat anything other than an
             # explicit OK as failure, not just an explicit NG. An empty/

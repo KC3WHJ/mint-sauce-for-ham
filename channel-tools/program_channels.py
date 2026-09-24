@@ -118,6 +118,31 @@ def encode_name(name: str) -> bytes:
     return name.upper()[:16].ljust(16).encode("ascii", errors="replace")
 
 
+def read_civ_reply(ser: Serial, sent_frame: bytes) -> bytes:
+    """Reads CI-V frames until it finds the radio's own reply, skipping an
+    echoed copy of our own outgoing command first if the radio's "CI-V USB
+    Echo Back" setting is on. Confirmed live 2026-09-24 (IC-705): with echo
+    back on, the radio sends the exact bytes we just wrote back as their own
+    FD-terminated frame BEFORE the real \xfb/\xfa reply - reading only up to
+    the first \xfd then picks up that echo instead of the actual result.
+    This was silently wrong here, not just occasionally slow: send() below
+    only rejects an explicit \xfa, so a misread echo (never \xfa) looked
+    like success without the real reply ever being checked - e.g.
+    read_memory_content() would have returned the echoed outgoing command
+    data instead of what the radio actually holds in that channel. Works
+    the same whether echo back is on or off - when it's off, the first
+    frame IS the reply and is returned immediately, same as before. See the
+    same fix/comment in channel-picker.py's select_memory_civ."""
+    for _ in range(3):  # one echo (if any) + the real reply, plus one spare
+        chunk = ser.read_until(expected=b"\xfd")
+        if not chunk:
+            return b""
+        if chunk == sent_frame:
+            continue  # our own echoed command - keep reading
+        return chunk
+    return b""
+
+
 class CivError(Exception):
     pass
 
@@ -148,7 +173,7 @@ class Radio:
     def send(self, command: bytes, data: bytes = b"") -> bytes:
         frame = b"\xfe\xfe" + self.transceiver_addr + CONTROLLER_ADDR + command + data + b"\xfd"
         self.ser.write(frame)
-        reply = self.ser.read_until(expected=b"\xfd")
+        reply = read_civ_reply(self.ser, frame)
         if not reply:
             raise CivError(f"Timeout waiting for reply to {command.hex()}")
         if reply[-2:-1] == b"\xfa":
