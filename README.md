@@ -99,11 +99,24 @@ substitute for amrron.com's current SOI (Signal Operating Instructions).**
   to save too. The setup script patches `~/.fldigi/fldigi_def.xml`
   directly instead (`CHKUSEHAMLIBIS`, `HAMRIGDEVICE`, `HAMRIGMODEL`,
   `MYCALL`, `RECEIVERSID` for RX RSID so incoming Flamp transfers
-  auto-detect) — but that file only exists after Fldigi has been launched
+  auto-detect, and `HAMLIBCMDPTT` — see the PTT note right below) — but
+  that file only exists after Fldigi has been launched
   and cleanly closed once (File → Exit; killing it early writes nothing
   at all), so the very first time, launch Fldigi, click through the
   wizard with any values, close it normally, then re-run the setup
   script to apply the real config.
+- **"Use Hamlib" only gives Fldigi CAT frequency control - it does NOT
+  key the radio.** PTT needs its own, separate checkbox, **"PTT via Hamlib
+  command"** (`HAMLIBCMDPTT`), under Configure > Rig Control > Hamlib.
+  Confirmed live 2026-09-24: with only "Use Hamlib" on, Fldigi showed
+  itself transmitting (Tune lit, audio generated) but the IC-705 never
+  actually keyed - CAT reads/frequency worked the whole time, masking
+  the problem. `Start_Fldigi.sh` now sets `HAMLIBCMDPTT` on the same
+  first-run pass as the rest of the Hamlib config, but Fldigi's own help
+  text says this specific setting needs the **Initialize** button
+  (Configure > Rig Control > Hamlib) pressed once to take effect in the
+  current session - a raw config-file patch alone isn't enough while
+  Fldigi is already running new to that setting.
 - **vARIM vs. VarAC** — two different front-ends for the same underlying
   VARA HF modem, not competing modes: VarAC is Windows-polished (via
   Wine, already set up) with a broader feature set (HF/FM/satellite);

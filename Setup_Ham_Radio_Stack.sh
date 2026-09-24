@@ -1149,8 +1149,11 @@ if [ -f "$FLDIGI_XML" ] && ! pgrep -fx fldigi > /dev/null; then
             -e 's|<CHKUSEHAMLIBIS>0</CHKUSEHAMLIBIS>|<CHKUSEHAMLIBIS>1</CHKUSEHAMLIBIS>|' \
             -e 's|<HAMRIGDEVICE>.*</HAMRIGDEVICE>|<HAMRIGDEVICE>127.0.0.1:4532</HAMRIGDEVICE>|' \
             -e 's|<HAMRIGMODEL>.*</HAMRIGMODEL>|<HAMRIGMODEL>2</HAMRIGMODEL>|' \
+            -e 's|<HAMLIBCMDPTT>0</HAMLIBCMDPTT>|<HAMLIBCMDPTT>1</HAMLIBCMDPTT>|' \
             "$FLDIGI_XML"
-        echo "Fldigi rig control: none -> Hamlib NET rigctl 127.0.0.1:4532."
+        echo "Fldigi rig control: none -> Hamlib NET rigctl 127.0.0.1:4532, PTT via Hamlib command."
+        echo "NOTE: open Configure > Rig Control > Hamlib and click Initialize once -"
+        echo "Fldigi's own PTT-via-Hamlib setting needs that to actually take effect."
     fi
 fi
 
