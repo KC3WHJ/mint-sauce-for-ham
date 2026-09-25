@@ -1283,7 +1283,9 @@ set -e
 SINK_NAME="websdr_sink"
 
 echo "=== Setting up virtual audio sink ==="
-if pactl list short sinks | grep -q "$SINK_NAME"; then
+# Check the module list (updates the instant load-module returns), not the
+# sink list, so two quick Activates can never load a duplicate sink.
+if pactl list short modules | grep -Eq "sink_name=$SINK_NAME([[:space:]]|$)"; then
     echo "$SINK_NAME already exists, reusing it."
 else
     pactl load-module module-null-sink sink_name="$SINK_NAME" \
@@ -1402,7 +1404,13 @@ if pgrep -f "^fldigi --home-dir $HOME/Fldigi-WebSDR" > /dev/null; then
     # Deactivate removes the sink once nothing is using it.
     echo "$SINK_NAME kept - the Fldigi WebSDR setup is still using it."
 elif [ -n "$MODULE_ID" ]; then
-    pactl unload-module "$MODULE_ID"
+    # Unload EVERY matching module, one at a time: if a duplicate ever got
+    # loaded (two Activates at once), MODULE_ID holds two ids and passing
+    # both to one unload-module call fails, leaving the silent sink behind
+    # with whatever Firefox stream was routed into it (2026-09-25).
+    for id in $MODULE_ID; do
+        pactl unload-module "$id"
+    done
     echo "Removed $SINK_NAME."
 else
     echo "$SINK_NAME was not loaded."
@@ -1675,7 +1683,9 @@ fi
 echo "=== Setting up virtual audio sinks ==="
 for s in "$SINK_NAME:WebSDR_Sink" "$TX_VOID:WebSDR_Fldigi_TX_Discard"; do
     name="${s%%:*}"; desc="${s##*:}"
-    if pactl list short sinks | grep -q "$name"; then
+    # Check the module list (updates the instant load-module returns), not the
+    # sink list, so two quick Activates can never load a duplicate sink.
+    if pactl list short modules | grep -Eq "sink_name=$name([[:space:]]|$)"; then
         echo "$name already exists, reusing it."
     else
         pactl load-module module-null-sink sink_name="$name" \
@@ -1867,10 +1877,14 @@ close_matching "Fldigi" "^fldigi --home-dir $WHOME"
 echo
 echo "=== Removing virtual audio sinks ==="
 unload_sink() {
-    local name="$1" id
-    id=$(pactl list short modules | awk -v s="sink_name=$name" '$0 ~ s {print $1}')
-    if [ -n "$id" ]; then
-        pactl unload-module "$id"
+    local name="$1" ids id
+    ids=$(pactl list short modules | awk -v s="sink_name=$name" '$0 ~ s {print $1}')
+    if [ -n "$ids" ]; then
+        # Every matching module, one call each: a duplicate would put two
+        # ids in one unload-module call, which fails and strands the sink.
+        for id in $ids; do
+            pactl unload-module "$id"
+        done
         echo "Removed $name."
     else
         echo "$name was not loaded."
