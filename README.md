@@ -220,6 +220,12 @@ Added 2026-09-18, following AmRRON's own video *"FLDIGI Setup for AmRRON Ops
 
 ## Receive-only JS8Call via a web SDR (no radio needed at all)
 
+> **Just want this part, without the rest of the station?** A standalone version -
+> JS8Call and CommStat only, no radio needed - lives in its own small repo, with a
+> prerequisite check that runs before anything is installed and a start-up guard that
+> keeps it receive-only:
+> **[JS8Call-CommStat-Receive-Only](https://github.com/KC3WHJ/JS8Call-CommStat-Receive-Only)**.
+
 **Activate JS8Call WebSDR** / **Deactivate JS8Call WebSDR** (Desktop
 shortcuts) decode JS8 from any web-based SDR (websdr.org, kiwisdr.com,
 etc.) instead of this station's own radio — no rig control, no license
