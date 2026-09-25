@@ -772,7 +772,21 @@ section "Installing CommStat (JS8Call situational-awareness companion)"
 # installer needs but doesn't itself install - added explicitly below.
 sudo apt install -y python3-pip
 if [ -d "$HOME/CommStat/.git" ]; then
-    (cd "$HOME/CommStat" && git pull)
+    # CommStat updates itself in place: its server pushes program updates that
+    # rewrite its own files, and it regenerates map.html etc. on every run, so
+    # this checkout is normally "dirty" after first use - and a plain
+    # `git pull` then aborts with "local changes would be overwritten", which
+    # stopped this whole script on 2026-09-24. So only pull when the checkout
+    # is clean (ignoring file-mode-only changes); otherwise leave updating to
+    # the app's own update channel. (GitHub can also be AHEAD of what the
+    # CommStat server distributes - it was on 5.0 while the server pushed
+    # 4.13d - so not pulling is usually the safer choice anyway.)
+    if [ -z "$(cd "$HOME/CommStat" && git -c core.fileMode=false status --porcelain --untracked-files=no)" ]; then
+        (cd "$HOME/CommStat" && git -c core.fileMode=false pull --ff-only) \
+            || echo "NOTE: couldn't update CommStat from GitHub (offline?) - keeping the installed copy."
+    else
+        echo "CommStat has updated itself in place (its own update channel) - skipping 'git pull'."
+    fi
 else
     git clone https://github.com/mgochoa57/CommStat.git "$HOME/CommStat"
 fi
