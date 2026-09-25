@@ -1537,8 +1537,13 @@ if ! ss -tln | grep -q ":$PORT "; then
 fi
 
 cd "$DEST"
+# setsid + nohup: detach completely from the terminal window that ran this.
+# nohup alone protects CommStat itself but NOT its Qt WebEngine helper
+# processes (Chromium resets their signal handling), so closing the Activate
+# window used to kill the map renderer and leave a blank map pane
+# (confirmed 2026-09-25).
 XDG_DATA_HOME="$DEST/.xdg/data" XDG_CACHE_HOME="$DEST/.xdg/cache" \
-    nohup python3 commstat.py > "$DEST/commstat-websdr.log" 2>&1 &
+    setsid nohup python3 commstat.py > "$DEST/commstat-websdr.log" 2>&1 &
 disown
 echo "CommStat (WebSDR copy) launched."
 WEBSDR_COMMSTAT_EOF
