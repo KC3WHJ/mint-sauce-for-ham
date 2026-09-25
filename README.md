@@ -78,6 +78,16 @@ substitute for amrron.com's current SOI (Signal Operating Instructions).**
   center via its own "Center" field; this isn't something the setup script
   hardcodes, since it's an operating-time choice per net, not an install
   default.
+- **JS8Call AmRRON frequencies** - per AmRRON's "JS8Call Settings for AmRRON Ops" page
+  (updated 2022-06-01), **14.110, 7.110 and 3.588 MHz** are added to JS8Call's frequency
+  dropdown (the same three the Fldigi nets use). The setup script does it by editing the
+  frequency table in `~/.config/JS8Call.ini` with `bin/add-js8call-frequencies.py` (radio
+  profile only; it saves a backup, refuses to write unless its encoder reproduces the file's
+  existing value exactly, and skips frequencies already present). JS8Call rewrites its settings
+  on exit, so close it first. AmRRON's other JS8Call guidance from the same page: keep traffic
+  between **1900 and 2300 Hz** on the waterfall, put an abbreviated STATREP in the **Station
+  Status** field, turn **HB+ACK and AUTO off** before scheduled nets, turn **SPOT off**, and set
+  any automatic heartbeat to no more than once an hour.
 - **JS8Call callsign group** — `@AMRRON` under Callsign Groups (already
   set in this station's `JS8Call.ini`) lets directed messages/queries
   reach the whole AmRRON group.

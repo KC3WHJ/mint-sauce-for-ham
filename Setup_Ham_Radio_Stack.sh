@@ -809,6 +809,25 @@ fi
 echo "CommStat itself needs a one-time first-run setup (callsign, groups,"
 echo "optional QRZ key) through its own UI - launch via the Desktop shortcut."
 
+section "AmRRON frequencies in JS8Call's dropdown (radio profile)"
+# AmRRON's JS8Call guidance (amrron.com "JS8Call Settings for AmRRON Ops", updated 2022-06-01)
+# says to add three digital-mode frequencies to JS8Call's frequency page: 14.110 (20m),
+# 7.110 (40m) and 3.588 MHz (80m) - the same three the Fldigi nets use. Done here by editing the
+# frequency table stored in the profile .ini (bin/add-js8call-frequencies.py: backs the file up,
+# refuses to write unless its encoder reproduces the existing value exactly, skips frequencies
+# already present). RADIO profile only - the receive-only WebSDR profile is left alone.
+# JS8Call rewrites its settings on exit, so it must be closed for this to stick.
+JS8_RADIO_INI="$HOME/.config/JS8Call.ini"
+if pgrep -fx js8call > /dev/null; then
+    echo "NOTE: JS8Call is running - close it, then re-run this script to add AmRRON's frequencies."
+elif [ -f "$JS8_RADIO_INI" ]; then
+    python3 "$SCRIPT_DIR/bin/add-js8call-frequencies.py" "$JS8_RADIO_INI" --apply 3588000 7110000 14110000 \
+        || echo "NOTE: couldn't add AmRRON's frequencies automatically - add 14.110, 7.110 and 3.588 in JS8Call's File > Settings > Frequency page."
+else
+    echo "NOTE: JS8Call hasn't been run yet (no $JS8_RADIO_INI). Run it once, close it, then re-run"
+    echo "this script to add AmRRON's frequencies (14.110, 7.110, 3.588 MHz) to its dropdown."
+fi
+
 section "Installing VOACAP GUI (HF propagation prediction)"
 # voacapl (jawatson/voacapl) is the actual VOACAP engine ported to Linux;
 # PythonProp (jawatson/pythonprop, same author) is its GTK3 GUI front-end
