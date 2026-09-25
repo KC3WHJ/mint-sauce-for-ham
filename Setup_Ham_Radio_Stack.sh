@@ -1298,7 +1298,13 @@ echo "=== Starting JS8Call (WebSDR profile - separate from your radio profile) =
 if pgrep -f "js8call -r WebSDR" > /dev/null; then
     echo "Already running."
 else
-    js8call -r WebSDR &
+    # setsid + nohup: detach completely from this terminal window. A bare `&`
+    # plus disown still gets a hang-up signal when the window closes -
+    # confirmed 2026-09-25: closing the Activate window killed JS8Call while
+    # the nohup'd CommStat copy lived on (then CommStat couldn't reach its port).
+    mkdir -p "$HOME/.local/share/JS8Call - WebSDR"
+    setsid nohup js8call -r WebSDR \
+        > "$HOME/.local/share/JS8Call - WebSDR/launch.log" 2>&1 &
     disown
     sleep 2
 fi
