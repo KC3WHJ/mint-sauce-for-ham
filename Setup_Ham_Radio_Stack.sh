@@ -1583,7 +1583,11 @@ CATNetworkPort=
 CATSerialPort=
 MyCall=$CALLSIGN
 MyGrid=$GRID
-PSKReporter=true
+# Spotting OFF: this profile hears a REMOTE receiver, so reporting what it decodes to
+# PSKReporter / APRS-IS would misattribute those stations to this station's own
+# callsign and grid. (Fixed 2026-09-25 - it was seeded with PSKReporter=true.)
+PSKReporter=false
+SpotToAPRS=false
 PTTport=
 Polling=1
 Rig=None
