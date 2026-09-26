@@ -92,26 +92,55 @@ start_app() {
     say "$label: no window after ${WAIT_WINDOW}s - carrying on."
 }
 
-# Flamp asks "Update Callsign and Info" at every start until it has a callsign. Fill it in - but
-# only when it is empty (never overwrites one you set), and only here, while Flamp is not running
-# (it rewrites its settings file when it exits).
-seed_flamp_callsign() {
-    local dir="$FLAMP_HOME/.nbems/FLAMP" prefs
+# Flamp's first-run settings: its callsign, plus the AmRRON configuration (its Configure tab, matched
+# to AmRRON's reference screenshot). Written here rather than clicked in because Flamp's tick marks
+# don't draw on this desktop. Everything happens while Flamp is NOT running (it rewrites its
+# settings file when it exits), the callsign is only filled in when empty, and the AmRRON block is
+# applied ONCE (marker file) so it never overrides what you change later.
+#   ON : auto sync flamp->fldigi mode selector, change fldigi mode just prior to transmit,
+#        warn when removing files from queue, clear missing blocks on non-canceled transmits,
+#        inhibit header modem on block fills, auto save subfolders in local time,
+#        auto save RX data on 100% reception
+#   OFF: auto sync fldigi->flamp, Tx on report, unproto markers, header modem, TX/RX interval
+#   (Tx duration 2.9 min / Rx 10 s are Flamp's own defaults.) The reference's "Save Relay Data On
+#   Program Exit" doesn't exist in this Flamp (2.2.09), so it can't be set.
+AMRRON_FLAMP_PREFS="sync_mode_flamp_fldigi=0 sync_mode_fldigi_flamp=1 fldigi_xmt_mode_change=1
+use_tx_on_report=0 enable_delete_warning=1 clear_tosend_on_tx_blocks=1
+disable_header_modem_on_block_fills=1 enable_unproto_markers=0 auto_rx_save=1
+auto_rx_save_local_time=1 use_header_modem=0 use_repeater_interval=0"
+seed_flamp_prefs() {
+    local dir="$FLAMP_HOME/.nbems/FLAMP" prefs marker kv k v
     prefs="$dir/FLAMP.prefs"
-    [ -n "$FLAMP_CALL" ] || return 0
+    marker="$dir/.amrron-profile-applied"
     pgrep "$FLAMP_MATCH" "$FLAMP_PAT" > /dev/null && return 0
     mkdir -p "$dir"
     if [ ! -f "$prefs" ]; then
         # The version line matters: without it Flamp treats the file as not its own and starts blank.
         local ver
         ver="$(dpkg-query -W -f='${Version}' flamp 2> /dev/null | sed 's/-.*//')"
-        printf '; FLTK preferences file format 1.0\n; vendor: w1hkj.com\n; application: FLAMP\n\n[.]\n\nversion:%s\nmycall:%s\n' \
-            "${ver:-2.2.09}" "$FLAMP_CALL" > "$prefs"
-    elif grep -q '^mycall:$' "$prefs"; then
-        sed -i "s|^mycall:\$|mycall:$FLAMP_CALL|" "$prefs"
+        printf '; FLTK preferences file format 1.0\n; vendor: w1hkj.com\n; application: FLAMP\n\n[.]\n\nversion:%s\n' \
+            "${ver:-2.2.09}" > "$prefs"
+    fi
+    if [ -n "$FLAMP_CALL" ]; then
+        if grep -q '^mycall:$' "$prefs"; then
+            sed -i "s|^mycall:\$|mycall:$FLAMP_CALL|" "$prefs"
+        elif ! grep -q '^mycall:' "$prefs"; then
+            echo "mycall:$FLAMP_CALL" >> "$prefs"
+        fi
+    fi
+    if [ ! -f "$marker" ]; then
+        for kv in $AMRRON_FLAMP_PREFS; do
+            k="${kv%%=*}"; v="${kv##*=}"
+            if grep -q "^$k:" "$prefs"; then
+                sed -i "s|^$k:.*|$k:$v|" "$prefs"
+            else
+                echo "$k:$v" >> "$prefs"
+            fi
+        done
+        touch "$marker"
     fi
 }
-seed_flamp_callsign
+seed_flamp_prefs
 
 start_app Flmsg "$FLMSG_MATCH" "$FLMSG_PAT" "$HOME" "${FLMSG_CMD[@]}"
 start_app Flamp "$FLAMP_MATCH" "$FLAMP_PAT" "$FLAMP_HOME" "${FLAMP_CMD[@]}"

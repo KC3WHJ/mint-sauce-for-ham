@@ -165,7 +165,12 @@ Added 2026-09-18, following AmRRON's own video *"FLDIGI Setup for AmRRON Ops
   before starting Flmsg, then Flamp. Each profile has its own copy: the receive-only Flamp is
   titled "Flamp - WEBSDR-RX", keeps its files under `~/Fldigi-WebSDR/flamp-home`, and talks to the
   receive-only Fldigi's port (7363), never the radio one's (7362). Flamp's callsign is filled in
-  for you (your Fldigi callsign / `WEBSDR-RX`) only when it is empty. Flamp has no command-line
+  for you (your Fldigi callsign / `WEBSDR-RX`) only when it is empty, and its Configure tab is set
+  to match AmRRON's reference once (sync flamp->fldigi mode, change mode before transmit, warn on
+  removing files, clear missing blocks, inhibit header modem on block fills, auto-save subfolders in
+  local time, auto-save RX data; header modem and TX/RX interval off) - written to Flamp's settings
+  file because its tick marks don't draw on this desktop. The reference's "Save Relay Data On
+  Program Exit" doesn't exist in the packaged Flamp 2.2.09. Flamp has no command-line
   option for its data folder in this version, which is why the receive-only copy gets its own HOME.
   "Deactivate Fldigi WebSDR" closes all three, Flamp first.
 - **AmRRON's Fldigi settings** are applied by
