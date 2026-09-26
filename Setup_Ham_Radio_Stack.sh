@@ -809,24 +809,31 @@ fi
 echo "CommStat itself needs a one-time first-run setup (callsign, groups,"
 echo "optional QRZ key) through its own UI - launch via the Desktop shortcut."
 
-section "AmRRON frequencies in JS8Call's dropdown (radio profile)"
+section "AmRRON frequencies in JS8Call's dropdown (radio + receive-only WebSDR profiles)"
 # AmRRON's JS8Call guidance (amrron.com "JS8Call Settings for AmRRON Ops", updated 2022-06-01)
 # says to add three digital-mode frequencies to JS8Call's frequency page: 14.110 (20m),
 # 7.110 (40m) and 3.588 MHz (80m) - the same three the Fldigi nets use. Done here by editing the
-# frequency table stored in the profile .ini (bin/add-js8call-frequencies.py: backs the file up,
+# frequency table stored in each profile .ini (bin/add-js8call-frequencies.py: backs the file up,
 # refuses to write unless its encoder reproduces the existing value exactly, skips frequencies
-# already present). RADIO profile only - the receive-only WebSDR profile is left alone.
-# JS8Call rewrites its settings on exit, so it must be closed for this to stick.
-JS8_RADIO_INI="$HOME/.config/JS8Call.ini"
-if pgrep -fx js8call > /dev/null; then
-    echo "NOTE: JS8Call is running - close it, then re-run this script to add AmRRON's frequencies."
-elif [ -f "$JS8_RADIO_INI" ]; then
-    python3 "$SCRIPT_DIR/bin/add-js8call-frequencies.py" "$JS8_RADIO_INI" --apply 3588000 7110000 14110000 \
-        || echo "NOTE: couldn't add AmRRON's frequencies automatically - add 14.110, 7.110 and 3.588 in JS8Call's File > Settings > Frequency page."
-else
-    echo "NOTE: JS8Call hasn't been run yet (no $JS8_RADIO_INI). Run it once, close it, then re-run"
-    echo "this script to add AmRRON's frequencies (14.110, 7.110, 3.588 MHz) to its dropdown."
-fi
+# already present). Both profiles get them: the radio one, and the receive-only WebSDR one
+# (whose dropdown is what you tune the remote receiver against). JS8Call rewrites its settings on
+# exit, so the profile in question must be closed for this to stick. A profile that has never been
+# run has no table yet (JS8Call writes it on first exit) - run it once, close it, re-run this script.
+add_amrron_js8_freqs() {   # $1 = label, $2 = ini, $3 = pgrep pattern for that profile's process
+    local label="$1" ini="$2" running="$3"
+    if pgrep -f "$running" > /dev/null; then
+        echo "NOTE: JS8Call ($label) is running - close it, then re-run this script to add AmRRON's frequencies."
+    elif [ -f "$ini" ]; then
+        python3 "$SCRIPT_DIR/bin/add-js8call-frequencies.py" "$ini" --apply 3588000 7110000 14110000 \
+            || echo "NOTE: couldn't add AmRRON's frequencies to JS8Call ($label) automatically - add 14.110, 7.110 and 3.588 in its File > Settings > Frequency page."
+    else
+        echo "NOTE: JS8Call ($label) hasn't been run yet (no $ini). Run it once, close it, then re-run"
+        echo "this script to add AmRRON's frequencies (14.110, 7.110, 3.588 MHz) to its dropdown."
+    fi
+}
+# [j] / [-] keep pgrep from matching this script's own command line.
+add_amrron_js8_freqs "radio" "$HOME/.config/JS8Call.ini" '^[j]s8call$'
+add_amrron_js8_freqs "WebSDR" "$HOME/.config/JS8Call - WebSDR.ini" '[j]s8call -r WebSDR'
 
 section "Installing VOACAP GUI (HF propagation prediction)"
 # voacapl (jawatson/voacapl) is the actual VOACAP engine ported to Linux;
@@ -910,7 +917,7 @@ chmod +x "$HOME/.local/bin/select-radio.sh" "$HOME/.local/bin/ham-radio-name.sh"
     "$HOME/.local/bin/Start_Flrig_Radio.sh" "$HOME/.local/bin/sync-radio-audio.sh" \
     "$HOME/.local/bin/ham-radio-freq.sh" "$HOME/.local/bin/ham-radio-mode.sh" \
     "$HOME/.local/bin/ham-gps-grid.sh" "$HOME/.local/bin/apply-amrron-fldigi.sh" \
-    "$HOME/.local/bin/install-amrron-forms.sh"
+    "$HOME/.local/bin/install-amrron-forms.sh" "$HOME/.local/bin/open-fldigi-companions.sh"
 if [ -d "$SCRIPT_DIR/radio_profiles" ]; then
     cp -n "$SCRIPT_DIR/radio_profiles/"*.conf "$HOME/radio_profiles/" 2>/dev/null || true
     cp -n "$SCRIPT_DIR/radio_profiles/audio/"*.sh "$HOME/radio_profiles/audio/" 2>/dev/null || true
@@ -1196,6 +1203,13 @@ fi
 
 if [ -n "$PULSE_INPUT" ] && [ -n "$PULSE_OUTPUT" ]; then
     export PULSE_SOURCE="$PULSE_INPUT" PULSE_SINK="$PULSE_OUTPUT"
+fi
+
+# Flmsg, then Flamp (in that order), open by themselves once Fldigi's XML-RPC port is answering -
+# they talk to Fldigi through it, and Flamp in particular is no use without it. Runs in the
+# background while Fldigi (below) starts; already-open copies are left alone.
+if [ -x "$HOME/.local/bin/open-fldigi-companions.sh" ]; then
+    setsid -f "$HOME/.local/bin/open-fldigi-companions.sh" radio > /dev/null 2>&1
 fi
 FLDIGI_EXTRA_EOF
     fi
@@ -1804,15 +1818,14 @@ for i in $(seq 1 20); do
 done
 
 echo
-echo "=== Starting Flmsg (WebSDR profile) ==="
-if pgrep -f "^flmsg --flmsg-dir $WHOME" > /dev/null; then
-    echo "Already running."
+echo "=== Starting Flmsg, then Flamp (WebSDR profile) ==="
+# Order matters: both talk to the Fldigi above over XML-RPC. The helper waits for that port, opens
+# Flmsg, waits for its window, then opens Flamp (its own HOME + a "WEBSDR-RX" title, so it can't be
+# confused with - or share files with - a radio Flamp).
+if [ -x "$HOME/.local/bin/open-fldigi-companions.sh" ]; then
+    "$HOME/.local/bin/open-fldigi-companions.sh" websdr
 else
-    # --server-port: Flmsg's forms web page starts at 8080 by default, which is
-    # Pat Winlink's port - use a different range so nothing collides.
-    nohup flmsg --flmsg-dir "$WHOME/.nbems" --server-port 8280 \
-        > "$WHOME/flmsg-websdr.log" 2>&1 &
-    disown
+    echo "open-fldigi-companions.sh is missing - re-run Setup_Ham_Radio_Stack.sh."
 fi
 
 echo
@@ -1897,10 +1910,12 @@ close_matching() {
         return
     fi
     for pid in $pids; do
-        # xdotool (not wmctrl -l) finds every window the process owns,
-        # including title-less ones like Flmsg's main window.
-        for wid in $(xdotool search --pid "$pid" 2>/dev/null); do
-            wmctrl -ic "$(printf '0x%x' "$wid")" 2>/dev/null
+        # wmctrl -lp lists every window with its owning pid, including title-less
+        # ones like Flmsg's main window. (This used xdotool, which isn't installed
+        # by default - so nothing was ever asked to close and every app got the
+        # hard kill below instead, without a chance to save its settings.)
+        for wid in $(wmctrl -lp 2>/dev/null | awk -v p="$pid" '$3 == p {print $1}'); do
+            wmctrl -ic "$wid" 2>/dev/null
         done
     done
     for i in 1 2 3 4 5 6; do
@@ -1915,6 +1930,10 @@ close_matching() {
     fi
 }
 
+echo "=== Stopping Flamp (WebSDR copy) ==="
+close_matching "Flamp" "^flamp --xmlrpc-server-port 7363"
+
+echo
 echo "=== Stopping Flmsg (WebSDR copy) ==="
 close_matching "Flmsg" "^flmsg --flmsg-dir $WHOME"
 
@@ -1948,7 +1967,7 @@ else
 fi
 
 echo
-echo "Done. Your radio-connected Fldigi/Flmsg were never touched."
+echo "Done. Your radio-connected Fldigi/Flmsg/Flamp were never touched."
 FLDIGI_WEBSDR_STOP_EOF
 chmod +x "$HOME/Stop_Fldigi_WebSDR.sh"
 
@@ -1967,7 +1986,7 @@ EOF
 cat > "$HOME/Desktop/Activate Fldigi WebSDR.desktop" <<EOF
 [Desktop Entry]
 Name=Activate Fldigi WebSDR
-Comment=Receive-only Fldigi + Flmsg from a web SDR (no radio needed)
+Comment=Receive-only Fldigi + Flmsg + Flamp from a web SDR (no radio needed)
 Exec=bash -c "\$HOME/Start_Fldigi_WebSDR.sh; echo; read -p 'Press Enter to close...'"
 Type=Application
 Terminal=true
@@ -1977,7 +1996,7 @@ EOF
 cat > "$HOME/Desktop/Deactivate Fldigi WebSDR.desktop" <<EOF
 [Desktop Entry]
 Name=Deactivate Fldigi WebSDR
-Comment=Closes the WebSDR Fldigi + Flmsg (does not touch your radio Fldigi)
+Comment=Closes the WebSDR Fldigi + Flmsg + Flamp (does not touch your radio Fldigi)
 Exec=bash -c "\$HOME/Stop_Fldigi_WebSDR.sh; echo; read -p 'Press Enter to close...'"
 Type=Application
 Terminal=true

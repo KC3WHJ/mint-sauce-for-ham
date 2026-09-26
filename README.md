@@ -81,8 +81,9 @@ substitute for amrron.com's current SOI (Signal Operating Instructions).**
 - **JS8Call AmRRON frequencies** - per AmRRON's "JS8Call Settings for AmRRON Ops" page
   (updated 2022-06-01), **14.110, 7.110 and 3.588 MHz** are added to JS8Call's frequency
   dropdown (the same three the Fldigi nets use). The setup script does it by editing the
-  frequency table in `~/.config/JS8Call.ini` with `bin/add-js8call-frequencies.py` (radio
-  profile only; it saves a backup, refuses to write unless its encoder reproduces the file's
+  frequency table in each profile's .ini (`~/.config/JS8Call.ini` for the radio and
+  `~/.config/JS8Call - WebSDR.ini` for the receive-only copy) with `bin/add-js8call-frequencies.py`
+  (checked in JS8Call's own frequency menu in both; it saves a backup, refuses to write unless its encoder reproduces the file's
   existing value exactly, and skips frequencies already present). JS8Call rewrites its settings
   on exit, so close it first. AmRRON's other JS8Call guidance from the same page: keep traffic
   between **1900 and 2300 Hz** on the waterfall, put an abbreviated STATREP in the **Station
@@ -156,6 +157,17 @@ substitute for amrron.com's current SOI (Signal Operating Instructions).**
 Added 2026-09-18, following AmRRON's own video *"FLDIGI Setup for AmRRON Ops
 | Vid 2 | Receiving HF Digital Series"* and its Flmsg companion.
 
+- **Fldigi, Flmsg and Flamp open together, in that order** - for both the radio Fldigi (the Fldigi
+  Desktop icon) and the receive-only one (Activate Fldigi WebSDR). Flmsg parses an incoming
+  message into the right AmRRON form; Flamp reassembles multi-block transfers and requests any
+  missing blocks. Both talk to Fldigi over XML-RPC, and Flamp refuses to run without it ("Start
+  fldigi before flamp!"), so `bin/open-fldigi-companions.sh` waits until Fldigi actually answers
+  before starting Flmsg, then Flamp. Each profile has its own copy: the receive-only Flamp is
+  titled "Flamp - WEBSDR-RX", keeps its files under `~/Fldigi-WebSDR/flamp-home`, and talks to the
+  receive-only Fldigi's port (7363), never the radio one's (7362). Flamp's callsign is filled in
+  for you (your Fldigi callsign / `WEBSDR-RX`) only when it is empty. Flamp has no command-line
+  option for its data folder in this version, which is why the receive-only copy gets its own HOME.
+  "Deactivate Fldigi WebSDR" closes all three, Flamp first.
 - **AmRRON's Fldigi settings** are applied by
   `bin/apply-amrron-fldigi.sh` (deployed to `~/.local/bin`), which patches a
   Fldigi config folder's `fldigi_def.xml`/`fldigi.prefs`/`frequencies2.txt`:
