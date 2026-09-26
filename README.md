@@ -289,6 +289,40 @@ Verified live 2026-09-18 against a real public WebSDR
 waterfall showing genuine activity, all the way through to JS8Call
 actually decoding.
 
+## Weather: live radar and alerts (US National Weather Service)
+
+No account, no API key, no radio needed - the data is the NWS's public feeds. Position comes from
+`ADSB_LAT` / `ADSB_LON` in `config.sh`; the setup script does the rest.
+
+- **Alerts** - `bin/wxstation alerts` runs at login. It checks the NWS alerts for your exact
+  position every minute, shows a desktop pop-up for each *new* alert (plus a sound for Severe /
+  Extreme ones such as a Tornado Warning), and keeps a **WEATHER** block in the Conky panel
+  current (colour-coded: green none, yellow advisory/watch, red warning). An alert isn't announced
+  twice; it announces again if it is upgraded (e.g. Watch -> Warning) or comes back after ending.
+  If the network drops it keeps showing the last good text and shows "offline" after three failed
+  checks.
+- **Radar wall** - the **Weather Radar** Desktop icon opens a page with your local radar site's loop
+  (e.g. KDIX), the regional sector's loop (Northeast), the national (CONUS) loop and the live alert
+  list. Images refresh every 5 minutes.
+- **Supercell Wx** - the **Supercell Wx** icon opens a full NEXRAD viewer (level 2/3 data, warning
+  polygons, storm tracks). It is pinned to v0.6.1 with a checksum and installed under `~/.local`.
+  First run walks through a setup wizard: a map style (the satellite/street styles need a free
+  MapTiler API key - create one at cloud.maptiler.com under API keys and leave the user-agent and
+  HTTP-origin restrictions blank, since a desktop app sends no web origin), and the grid size
+  (1x1 is a single big map). This step is manual - it can't be scripted. Afterwards set your radar
+  site under File -> Settings -> Default Radar Site. The alerts table lists warnings nationwide;
+  type your state (e.g. `PA`) in its Filter box to narrow it.
+
+Settings live in `~/.config/wxstation/config` (plain `KEY=VALUE`; `wxstation --help` lists them).
+The useful one is `REGION_STATES=PA,NJ,DE,MD`, which adds a `Region  TOR n  SVR n  FFW n` line to
+Conky counting Tornado / Severe Thunderstorm / Flash Flood warnings across those states and
+pops up for any Tornado Warning in them. Set `SOUND=0` or `NOTIFY=0` to quiet it.
+
+Limits worth knowing: NWS coverage is US-only; the regional radar sector is filled in
+automatically only for the Northeast states (other states: set `SECTOR` by hand - the names are
+listed on radar.weather.gov); alerts are for your point, so a warning for the next county over
+won't pop up unless you use `REGION_STATES`.
+
 ## Multi-radio support
 
 This station runs more than one radio (currently an Icom IC-705, Icom

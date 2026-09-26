@@ -2124,6 +2124,116 @@ EOF
 echo "Conky and the ID timer are installed and will autostart on next login"
 echo "(or start them now: conky -c ~/.config/conky/conky.conf &, python3 ~/.local/bin/id-timer.py &)."
 
+section "Weather: NWS alerts, Conky weather line, radar wall page, Supercell Wx"
+# Everything here is US National Weather Service data (no account, no API key). bin/wxstation:
+#   alerts - watches NWS alerts for your position, pops up a notice (and a sound for serious
+#            ones) for each new one, and feeds the Conky weather line
+#   radar  - a self-refreshing page of local / regional / national radar loops
+#   init   - looks up your nearest radar site from your position (ADSB_LAT / ADSB_LON in config.sh)
+# Supercell Wx is a separate, full NEXRAD radar viewer (level 2/3 data, warnings, storm tracks).
+mkdir -p "$HOME/.local/bin" "$HOME/.config/autostart" "$HOME/Desktop"
+# Plain install (overwrites) - unlike conky.conf this has no local hand-tuning to protect; settings
+# live in ~/.config/wxstation/config, which is never touched once it exists.
+install -m 755 "$SCRIPT_DIR/bin/wxstation" "$HOME/.local/bin/wxstation"
+
+if [ -f "$HOME/.config/wxstation/config" ]; then
+    echo "wxstation is already configured ($HOME/.config/wxstation/config) - leaving it alone."
+elif [ -n "$ADSB_LAT" ] && [ -n "$ADSB_LON" ]; then
+    "$HOME/.local/bin/wxstation" init --lat "$ADSB_LAT" --lon "$ADSB_LON" \
+        || echo "NOTE: wxstation init failed - run: wxstation init --lat LAT --lon LON"
+else
+    echo "NOTE: ADSB_LAT/ADSB_LON are blank in config.sh, so wxstation doesn't know where you are."
+    echo "      Run:  ~/.local/bin/wxstation init --lat LAT --lon LON   (then re-run this script)"
+fi
+
+if [ -f "$HOME/.config/wxstation/config" ]; then
+    # Add the WEATHER block to Conky (after the CPU Temp row). Done here rather than in the tracked
+    # conky.conf because that file is copied with cp -n (an existing one is never replaced), and
+    # because the block only makes sense once wxstation has a position. A no-op on re-run.
+    CONKY_CONF="$HOME/.config/conky/conky.conf"
+    if [ -f "$CONKY_CONF" ] && ! grep -q 'wxstation' "$CONKY_CONF"; then
+        if grep -q 'CPU Temp' "$CONKY_CONF"; then
+            cp -p "$CONKY_CONF" "$CONKY_CONF.pre-weather-$(date +%Y%m%d-%H%M)"
+            WX_SNIPPET="$(mktemp)"
+            cat > "$WX_SNIPPET" <<'WX_CONKY_EOF'
+
+${font DejaVu Sans Mono:size=10}${color 8b8f9c}WEATHER ${color 3a3d4a}${hr 1}${font}
+${font DejaVu Sans Mono:size=11}${execpi 30 cat ~/.cache/wxstation/conky.txt 2>/dev/null}${font}
+WX_CONKY_EOF
+            sed -i "/CPU Temp/r $WX_SNIPPET" "$CONKY_CONF"
+            rm -f "$WX_SNIPPET"
+            echo "Added a WEATHER block to $CONKY_CONF (restart Conky to see it)."
+        else
+            echo "NOTE: couldn't find the 'CPU Temp' row in $CONKY_CONF - add this yourself where you like:"
+            echo '      ${execpi 30 cat ~/.cache/wxstation/conky.txt 2>/dev/null}'
+        fi
+    fi
+
+    cat > "$HOME/.config/autostart/wxstation-alerts.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Weather Alerts (wxstation)
+Comment=Watch NWS alerts for this station - desktop pop-ups and the Conky weather line
+Exec=$HOME/.local/bin/wxstation alerts
+X-GNOME-Autostart-enabled=true
+Terminal=false
+EOF
+    cat > "$HOME/Desktop/Weather Radar.desktop" <<EOF
+[Desktop Entry]
+Name=Weather Radar
+Comment=Live local, regional and national radar loops plus active alerts (NWS)
+Exec=$HOME/.local/bin/wxstation radar --open
+Type=Application
+StartupNotify=true
+Icon=weather-storm
+Terminal=false
+Categories=Network;
+EOF
+    # Start the watcher now if it isn't already running (the [w] keeps pgrep from matching itself).
+    if ! pgrep -f '[w]xstation alerts' > /dev/null; then
+        setsid -f nohup "$HOME/.local/bin/wxstation" alerts > /dev/null 2>&1 < /dev/null
+        echo "Alert watcher started (it also starts at every login)."
+    fi
+fi
+
+# Supercell Wx - pinned version + checksum, installed under ~/.local/share (no root needed).
+SCWX_VER="0.6.1"
+SCWX_SHA256="c4c75599bd56f1f3f2077da3aa76b619301a43e83f0942f9cef64c2d398ef390"
+SCWX_URL="https://github.com/dpaulat/supercell-wx/releases/download/v${SCWX_VER}-release/supercell-wx-v${SCWX_VER}-linux-x64.tar.gz"
+SCWX_DIR="$HOME/.local/share/supercell-wx"
+# Qt's xcb platform plugin needs this and it's not in a default Mint install; without it the
+# program dies at start-up with "could not load the Qt platform plugin xcb".
+sudo apt install -y libxcb-cursor0
+if [ ! -x "$SCWX_DIR/bin/supercell-wx" ]; then
+    SCWX_TMP="$(mktemp -d)"
+    if curl -fL --retry 3 -o "$SCWX_TMP/scwx.tar.gz" "$SCWX_URL" \
+        && echo "$SCWX_SHA256  $SCWX_TMP/scwx.tar.gz" | sha256sum -c - > /dev/null; then
+        mkdir -p "$HOME/.local/share"
+        tar -xzf "$SCWX_TMP/scwx.tar.gz" -C "$HOME/.local/share" \
+            && echo "Supercell Wx $SCWX_VER installed to $SCWX_DIR." \
+            || echo "NOTE: couldn't unpack Supercell Wx - see the error above."
+    else
+        echo "NOTE: Supercell Wx download or checksum check failed - not installed. Get it from"
+        echo "      https://github.com/dpaulat/supercell-wx/releases and unpack it to $SCWX_DIR."
+    fi
+    rm -rf "$SCWX_TMP"
+else
+    echo "Supercell Wx is already installed ($SCWX_DIR)."
+fi
+if [ -x "$SCWX_DIR/bin/supercell-wx" ]; then
+    cat > "$HOME/Desktop/Supercell Wx.desktop" <<EOF
+[Desktop Entry]
+Name=Supercell Wx (NEXRAD radar)
+Comment=Full NEXRAD radar viewer with warnings - first run asks for a map style and radar site
+Exec=$SCWX_DIR/bin/supercell-wx
+Type=Application
+StartupNotify=true
+Icon=weather-severe-alert
+Terminal=false
+Categories=Network;
+EOF
+fi
+
 section "Desktop shortcuts"
 mkdir -p "$HOME/Desktop"
 

@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+"""wxstation - live National Weather Service alerts and radar for this station.
+
+  wxstation init   [--lat LAT --lon LON | --from-config-sh FILE] [--force]
+        Write ~/.config/wxstation/config: your position, the nearest NEXRAD radar site and the
+        regional radar sector (looked up from the NWS "points" service).
+  wxstation alerts [--once] [--fixture FILE] [--no-notify]
+        Watch NWS alerts for your exact position (checked every INTERVAL seconds): a desktop
+        pop-up (and sound for serious ones) for each NEW alert, and a live block of text for
+        Conky in ~/.cache/wxstation/conky.txt. Optionally (REGION_STATES) also count
+        tornado / severe-thunderstorm / flash-flood warnings across nearby states.
+  wxstation status
+        Print the current alerts once (no pop-ups, no files written).
+  wxstation radar  [--open]
+        Build the radar wall page - local radar site, regional sector and national loops, plus a
+        live alert list - at ~/.local/share/wxstation/radar.html; --open shows it in your browser.
+
+Data comes from api.weather.gov (alerts, no account needed) and radar.weather.gov (RIDGE radar
+loops). Nothing is sent anywhere except those two NWS requests.
+
+Config (~/.config/wxstation/config, KEY=VALUE lines):
+  LAT, LON          your position (decimal degrees)
+  RADAR_STATION     e.g. KDIX  (filled in by "init")
+  SECTOR            regional radar sector, e.g. NORTHEAST  (filled in by "init" where known)
+  INTERVAL          seconds between alert checks (default 60, minimum 30)
+  REGION_STATES     optional, e.g. PA,NJ,DE,MD - count serious warnings there too (default: off)
+  NOTIFY, SOUND     1/0: desktop pop-ups / warning sound (default 1)
+"""
+import argparse
+import datetime as dt
+import html
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+HOME = os.path.expanduser("~")
+CONF_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.join(HOME, ".config")), "wxstation")
+CONF_FILE = os.path.join(CONF_DIR, "config")
+CACHE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.join(HOME, ".cache")), "wxstation")
+DATA_DIR = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.join(HOME, ".local", "share")), "wxstation")
+UA = "wxstation (https://github.com/KC3WHJ/mint-sauce-for-ham)"
+API = "https://api.weather.gov"
+RIDGE = "https://radar.weather.gov/ridge/standard"
+CONFIG_KEYS = ("LAT", "LON", "RADAR_STATION", "SECTOR", "INTERVAL", "REGION_STATES", "NOTIFY", "SOUND")
+
+# The RIDGE regional sector that covers each state, where it's known for certain. Anything else:
+# set SECTOR by hand (the sector names are listed on https://radar.weather.gov/).
+SECTOR_BY_STATE = {s: "NORTHEAST" for s in "ME NH VT MA RI CT NY NJ PA DE MD DC".split()}
+
+SEV_RANK = {"Extreme": 4, "Severe": 3, "Moderate": 2, "Minor": 1, "Unknown": 0}
+SEV_COLOR = {4: "e06c75", 3: "e06c75", 2: "e5c07b", 1: "e5c07b", 0: "8b8f9c"}   # matches the Conky palette
+REGION_COUNT_EVENTS = ("Tornado Warning", "Severe Thunderstorm Warning", "Flash Flood Warning")
+REGION_NOTIFY_EVENTS = ("Tornado Warning",)
+WARN_SOUND = "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+
+
+# ------------------------------------------------------------------ config
+def load_config():
+    cfg = {"INTERVAL": "60", "NOTIFY": "1", "SOUND": "1", "REGION_STATES": "", "RADAR_STATION": "", "SECTOR": ""}
+    if os.path.isfile(CONF_FILE):
+        for line in open(CONF_FILE, encoding="utf-8"):
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            if k.strip() in CONFIG_KEYS:
+                cfg[k.strip()] = v.strip().strip('"')
+    return cfg
+
+
+def need_position(cfg):
+    try:
+        return round(float(cfg["LAT"]), 4), round(float(cfg["LON"]), 4)
+    except (KeyError, ValueError):
+        sys.exit("No position configured. Run:  wxstation init --lat LAT --lon LON")
+
+
+def write_config(cfg):
+    os.makedirs(CONF_DIR, exist_ok=True)
+    with open(CONF_FILE, "w", encoding="utf-8") as f:
+        f.write("# wxstation settings - see `wxstation --help`. Plain KEY=VALUE lines.\n")
+        for k in CONFIG_KEYS:
+            f.write(f"{k}={cfg.get(k, '')}\n")
+
+
+# --------------------------------------------------------------------- NWS
+def http_json(url, timeout=25):
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/geo+json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.load(r)
+
+
+def fetch_alerts(cfg, fixture=None):
+    """-> (local_features, region_features). Raises on network failure."""
+    if fixture:
+        data = json.load(open(fixture, encoding="utf-8"))
+        if "local" in data or "region" in data:
+            return data.get("local", {}).get("features", []), data.get("region", {}).get("features", [])
+        return data.get("features", []), []
+    lat, lon = need_position(cfg)
+    local = http_json(f"{API}/alerts/active?point={lat},{lon}").get("features", [])
+    region = []
+    states = ",".join(s.strip().upper() for s in cfg.get("REGION_STATES", "").split(",") if s.strip())
+    if states:
+        q = urllib.parse.urlencode({"area": states, "status": "actual", "message_type": "alert,update"})
+        region = http_json(f"{API}/alerts/active?{q}").get("features", [])
+    return local, region
+
+
+def parse_time(s):
+    try:
+        return dt.datetime.fromisoformat(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def local_until(p):
+    t = parse_time(p.get("ends") or p.get("expires"))
+    if not t:
+        return ""
+    t = t.astimezone()
+    return "until " + t.strftime("%-I:%M %p") + ("" if t.date() == dt.datetime.now().astimezone().date() else t.strftime(" %a"))
+
+
+def alert_key(p):
+    return f"{p.get('event', '?')}|{(p.get('areaDesc') or '')[:60]}"
+
+
+def sev(p):
+    return SEV_RANK.get(p.get("severity") or "Unknown", 0)
+
+
+def not_expired(p):
+    t = parse_time(p.get("ends") or p.get("expires"))
+    return t is None or t > dt.datetime.now(t.tzinfo)
+
+
+# ------------------------------------------------------------------- output
+def clean(s):
+    return re.sub(r"[$#{}\\]", "", s or "")
+
+
+def render_conky(local, region, ok, cfg):
+    lines = []
+    if not ok:
+        lines.append("${color b8bcc8}Alerts${goto 110}${color 5c6370}offline")
+    elif not local:
+        lines.append("${color b8bcc8}Alerts${goto 110}${color 98c379}none active")
+    else:
+        top = sorted(local, key=lambda f: -sev(f["properties"]))
+        p = top[0]["properties"]
+        more = f" +{len(top) - 1}" if len(top) > 1 else ""
+        lines.append(f"${{color b8bcc8}}Alerts${{goto 110}}${{color {SEV_COLOR[sev(p)]}}}{clean(p.get('event'))}{more}")
+        if local_until(p):
+            lines.append(f"${{color b8bcc8}}${{goto 110}}${{color 8b8f9c}}{clean(local_until(p))}")
+    if cfg.get("REGION_STATES"):
+        counts = {e: 0 for e in REGION_COUNT_EVENTS}
+        for f in region:
+            e = f["properties"].get("event")
+            if e in counts:
+                counts[e] += 1
+        tor, svr, ffw = (counts[e] for e in REGION_COUNT_EVENTS)
+        col = "e06c75" if tor else ("e5c07b" if svr or ffw else "98c379")
+        lines.append(f"${{color b8bcc8}}Region${{goto 110}}${{color {col}}}TOR {tor}  SVR {svr}  FFW {ffw}")
+    return "\n".join(lines) + "\n"
+
+
+def notify(title, body, critical, cfg):
+    if cfg.get("NOTIFY", "1") != "0":
+        subprocess.run(["notify-send", "-a", "wxstation", "-u", "critical" if critical else "normal",
+                        "-i", "dialog-warning", title, body], check=False)
+    if critical and cfg.get("SOUND", "1") != "0" and os.path.exists(WARN_SOUND):
+        subprocess.Popen(["paplay", WARN_SOUND], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def log(msg):
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    path = os.path.join(CACHE_DIR, "wxstation.log")
+    if os.path.exists(path) and os.path.getsize(path) > 200_000:
+        os.replace(path, path + ".1")
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n")
+
+
+# --------------------------------------------------------------------- alerts
+def poll(cfg, state, fixture=None, quiet=False):
+    """One check. Returns (ok, local_features, region_features)."""
+    try:
+        local, region = fetch_alerts(cfg, fixture)
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        log(f"fetch failed: {e}")
+        return False, state.get("last_local", []), []
+    local = [f for f in local if not_expired(f["properties"])]
+    seen = state.setdefault("seen", {})
+    # forget alerts that have ended, so a later alert of the same kind announces again
+    live_keys = {alert_key(f["properties"]) for f in local} | {alert_key(f["properties"]) for f in region}
+    for k in list(seen):
+        if k not in live_keys:
+            del seen[k]
+
+    def announce(feature, prefix):
+        p = feature["properties"]
+        key = alert_key(p)
+        prev = seen.get(key)
+        if prev is not None and sev(p) <= prev["sev"]:
+            return                                    # already announced (updates don't re-announce)
+        seen[key] = {"sev": sev(p), "expires": p.get("expires")}
+        critical = sev(p) >= 3
+        title = f"{prefix}{p.get('event')}" + (" (escalated)" if prev is not None else "")
+        body = (p.get("headline") or p.get("event") or "") + "\n" + (local_until(p) or "")
+        log(f"NEW {prefix}{p.get('event')} sev={p.get('severity')} {p.get('areaDesc', '')[:60]}")
+        if not quiet:
+            notify(title, body.strip(), critical, cfg)
+
+    for f in sorted(local, key=lambda f: -sev(f["properties"])):
+        announce(f, "")
+    for f in region:
+        if f["properties"].get("event") in REGION_NOTIFY_EVENTS and not_expired(f["properties"]):
+            announce(f, "Region: ")
+    state["last_local"] = local
+    return True, local, region
+
+
+def write_conky(local, region, ok, cfg):
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    tmp = os.path.join(CACHE_DIR, "conky.txt.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(render_conky(local, region, ok, cfg))
+    os.replace(tmp, os.path.join(CACHE_DIR, "conky.txt"))
+
+
+def cmd_alerts(a):
+    cfg = load_config()
+    interval = max(30, int(cfg.get("INTERVAL") or 60))
+    state_path = os.path.join(CACHE_DIR, "seen-fixture.json" if a.fixture else "seen.json")   # fixtures never touch live state
+    state = {}
+    if os.path.exists(state_path):
+        try:
+            state = json.load(open(state_path, encoding="utf-8"))
+        except ValueError:
+            state = {}
+    stop = []
+    signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
+    fails = 0
+    while True:
+        ok, local, region = poll(cfg, state, a.fixture, quiet=a.no_notify)
+        fails = 0 if ok else fails + 1
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        json.dump({"seen": state.get("seen", {})}, open(state_path, "w", encoding="utf-8"))
+        # tolerate brief outages: keep showing the last good text until 3 checks in a row fail
+        if ok or fails >= 3 or not os.path.exists(os.path.join(CACHE_DIR, "conky.txt")):
+            write_conky(local, region, ok, cfg)
+        if a.once or stop:
+            break
+        for _ in range(interval):
+            if stop:
+                break
+            time.sleep(1)
+        if stop:
+            break
+
+
+def cmd_status(a):
+    cfg = load_config()
+    local, region = fetch_alerts(cfg, a.fixture)
+    local = [f for f in local if not_expired(f["properties"])]
+    lat, lon = need_position(cfg) if not a.fixture else (0, 0)
+    print(f"Alerts for {lat},{lon}: {len(local)} active")
+    for f in sorted(local, key=lambda f: -sev(f["properties"])):
+        p = f["properties"]
+        print(f"  [{p.get('severity')}] {p.get('event')} - {local_until(p)}\n      {p.get('headline', '')[:150]}")
+    if cfg.get("REGION_STATES"):
+        c = {e: sum(1 for f in region if f['properties'].get('event') == e) for e in REGION_COUNT_EVENTS}
+        print("Region (" + cfg["REGION_STATES"] + "): " + ", ".join(f"{k} {v}" for k, v in c.items()))
+
+
+# ---------------------------------------------------------------------- init
+def cmd_init(a):
+    if os.path.exists(CONF_FILE) and not a.force:
+        print(f"{CONF_FILE} already exists - leaving it alone (use --force to rebuild).")
+        return
+    lat, lon = a.lat, a.lon
+    if a.from_config_sh:
+        txt = open(os.path.expanduser(a.from_config_sh), encoding="utf-8").read()
+        m1 = re.search(r'^ADSB_LAT="?([-0-9.]+)', txt, re.M)
+        m2 = re.search(r'^ADSB_LON="?([-0-9.]+)', txt, re.M)
+        if m1 and m2:
+            lat, lon = float(m1.group(1)), float(m2.group(1))
+    if lat is None or lon is None:
+        sys.exit("Give --lat and --lon (or --from-config-sh with ADSB_LAT / ADSB_LON set).")
+    lat, lon = round(lat, 4), round(lon, 4)
+    cfg = load_config()
+    cfg.update(LAT=str(lat), LON=str(lon))
+    try:
+        p = http_json(f"{API}/points/{lat},{lon}")["properties"]
+        cfg["RADAR_STATION"] = p.get("radarStation", "")
+        st = p["relativeLocation"]["properties"]["state"]
+        cfg["SECTOR"] = SECTOR_BY_STATE.get(st, "")
+        print(f"Location: {p['relativeLocation']['properties']['city']}, {st} - radar {cfg['RADAR_STATION']}, "
+              f"office {p.get('gridId')}, county {p['county'].rsplit('/', 1)[1]}, zone {p['forecastZone'].rsplit('/', 1)[1]}")
+        if not cfg["SECTOR"]:
+            print(f"NOTE: no regional radar sector known for {st}; set SECTOR in {CONF_FILE} "
+                  f"(names are listed on radar.weather.gov) or the regional panel is left out.")
+    except (urllib.error.URLError, OSError, KeyError, ValueError) as e:
+        print(f"NOTE: couldn't look up the radar site ({e}); set RADAR_STATION and SECTOR by hand in {CONF_FILE}.")
+    write_config(cfg)
+    print(f"Wrote {CONF_FILE}")
+
+
+# --------------------------------------------------------------------- radar
+PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Weather Radar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{{--bg:#14161c;--card:#1d2027;--line:#2c303a;--fg:#dfe3ea;--dim:#8b8f9c;--ok:#98c379;--warn:#e5c07b;--bad:#e06c75}}
+  *{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,sans-serif}}
+  header{{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:baseline;padding:12px 18px;border-bottom:1px solid var(--line)}}
+  h1{{font-size:18px;margin:0}} .dim{{color:var(--dim)}} a{{color:#6fa8dc}}
+  main{{display:grid;gap:14px;padding:14px;grid-template-columns:2fr 1fr}}
+  @media(max-width:1000px){{main{{grid-template-columns:1fr}}}}
+  figure{{margin:0;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}}
+  figcaption{{padding:8px 12px;font-weight:600;border-bottom:1px solid var(--line)}}
+  figure img{{display:block;width:100%;height:auto;background:#000}}
+  .stack{{display:grid;gap:14px;align-content:start}}
+  #alerts{{grid-column:1/-1;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px}}
+  #alerts h2{{font-size:15px;margin:0 0 6px}} .a{{padding:5px 0;border-top:1px solid var(--line)}}
+  .sev-Extreme,.sev-Severe{{color:var(--bad)}} .sev-Moderate,.sev-Minor{{color:var(--warn)}}
+</style></head><body>
+<header><h1>Weather Radar</h1>
+  <span class="dim">Local: {station} &middot; Region: {sector_label} &middot; National (CONUS)</span>
+  <span class="dim" id="stamp">loading&hellip;</span>
+  <span class="dim">Source: NWS (radar.weather.gov, api.weather.gov) &middot; <a href="https://radar.weather.gov/">interactive radar</a></span>
+</header>
+<main>
+  <figure><figcaption>Local radar &mdash; {station}</figcaption><img class="loop" data-src="{ridge}/{station}_loop.gif" alt="local radar loop"></figure>
+  <div class="stack">
+{regional}    <figure><figcaption>National &mdash; CONUS</figcaption><img class="loop" data-src="{ridge}/CONUS_loop.gif" alt="national radar loop"></figure>
+  </div>
+  <section id="alerts"><h2>Active alerts at your location</h2><div id="alist" class="dim">checking&hellip;</div></section>
+</main>
+<script>
+  const POINT="{lat},{lon}";
+  function refreshImages(){{document.querySelectorAll("img.loop").forEach(i=>{{i.src=i.dataset.src+"?t="+Date.now()}});
+    document.getElementById("stamp").textContent="images refreshed "+new Date().toLocaleTimeString()}}
+  async function refreshAlerts(){{
+    const box=document.getElementById("alist");
+    try{{
+      const r=await fetch("https://api.weather.gov/alerts/active?point="+POINT,{{headers:{{"Accept":"application/geo+json"}}}});
+      const j=await r.json(); const f=j.features||[];
+      if(!f.length){{box.className="dim";box.textContent="No active alerts.";return}}
+      box.className="";box.innerHTML="";
+      f.sort((a,b)=>["Extreme","Severe","Moderate","Minor","Unknown"].indexOf(a.properties.severity)-["Extreme","Severe","Moderate","Minor","Unknown"].indexOf(b.properties.severity));
+      f.forEach(x=>{{const p=x.properties,d=document.createElement("div");d.className="a";
+        const e=document.createElement("b");e.className="sev-"+p.severity;e.textContent=p.event;
+        d.appendChild(e);d.appendChild(document.createTextNode(" - "+(p.headline||"")));box.appendChild(d)}});
+    }}catch(e){{box.className="dim";box.textContent="Couldn't load alerts ("+e.message+")."}}
+  }}
+  refreshImages();refreshAlerts();
+  setInterval(refreshImages,300000);setInterval(refreshAlerts,120000);
+</script></body></html>
+"""
+
+
+def cmd_radar(a):
+    cfg = load_config()
+    lat, lon = need_position(cfg)
+    station = cfg.get("RADAR_STATION")
+    if not station:
+        sys.exit("No RADAR_STATION in the config - run `wxstation init --force`.")
+    sector = cfg.get("SECTOR", "")
+    regional = ""
+    if sector:
+        regional = (f'    <figure><figcaption>Regional &mdash; {html.escape(sector.title())}</figcaption>'
+                    f'<img class="loop" data-src="{RIDGE}/{sector}_loop.gif" alt="regional radar loop"></figure>\n')
+    os.makedirs(DATA_DIR, exist_ok=True)
+    path = os.path.join(DATA_DIR, "radar.html")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(PAGE.format(station=html.escape(station), sector_label=html.escape(sector.title() or "-"),
+                            ridge=RIDGE, regional=regional, lat=lat, lon=lon))
+    print(path)
+    if a.open:
+        subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="wxstation", description=__doc__.split("\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("init")
+    p.add_argument("--lat", type=float)
+    p.add_argument("--lon", type=float)
+    p.add_argument("--from-config-sh")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(fn=cmd_init)
+    p = sub.add_parser("alerts")
+    p.add_argument("--once", action="store_true")
+    p.add_argument("--fixture")
+    p.add_argument("--no-notify", action="store_true")
+    p.set_defaults(fn=cmd_alerts)
+    p = sub.add_parser("status")
+    p.add_argument("--fixture")
+    p.set_defaults(fn=cmd_status)
+    p = sub.add_parser("radar")
+    p.add_argument("--open", action="store_true")
+    p.set_defaults(fn=cmd_radar)
+    if len(sys.argv) == 1 or sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        return
+    a = ap.parse_args()
+    a.fn(a)
+
+
+if __name__ == "__main__":
+    main()
