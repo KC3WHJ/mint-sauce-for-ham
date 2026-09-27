@@ -917,7 +917,8 @@ chmod +x "$HOME/.local/bin/select-radio.sh" "$HOME/.local/bin/ham-radio-name.sh"
     "$HOME/.local/bin/Start_Flrig_Radio.sh" "$HOME/.local/bin/sync-radio-audio.sh" \
     "$HOME/.local/bin/ham-radio-freq.sh" "$HOME/.local/bin/ham-radio-mode.sh" \
     "$HOME/.local/bin/ham-gps-grid.sh" "$HOME/.local/bin/apply-amrron-fldigi.sh" \
-    "$HOME/.local/bin/install-amrron-forms.sh" "$HOME/.local/bin/open-fldigi-companions.sh"
+    "$HOME/.local/bin/install-amrron-forms.sh" "$HOME/.local/bin/open-fldigi-companions.sh" \
+    "$HOME/.local/bin/open-commstat-with-js8call.sh"
 if [ -d "$SCRIPT_DIR/radio_profiles" ]; then
     cp -n "$SCRIPT_DIR/radio_profiles/"*.conf "$HOME/radio_profiles/" 2>/dev/null || true
     cp -n "$SCRIPT_DIR/radio_profiles/audio/"*.sh "$HOME/radio_profiles/audio/" 2>/dev/null || true
@@ -1212,6 +1213,16 @@ if [ -x "$HOME/.local/bin/open-fldigi-companions.sh" ]; then
     setsid -f "$HOME/.local/bin/open-fldigi-companions.sh" radio > /dev/null 2>&1
 fi
 FLDIGI_EXTRA_EOF
+    elif [ "$SCRIPT_NAME" = "JS8Call" ] && [ "${JS8CALL_OPENS_COMMSTAT:-no}" = "yes" ]; then
+        # Opt-in (config.sh: JS8CALL_OPENS_COMMSTAT="yes"); anyone who leaves it off gets a plain JS8Call launcher.
+        read -r -d '' EXTRA <<'JS8_EXTRA_EOF' || true
+# Open CommStat as well, once JS8Call's API port is listening (CommStat connects only once, at its
+# own start-up, so JS8Call has to be up first). Runs in the background while JS8Call (below) starts;
+# does nothing if CommStat is already open or isn't installed.
+if [ -x "$HOME/.local/bin/open-commstat-with-js8call.sh" ]; then
+    setsid -f "$HOME/.local/bin/open-commstat-with-js8call.sh" > /dev/null 2>&1
+fi
+JS8_EXTRA_EOF
     fi
 cat > "$HOME/Start_$SCRIPT_NAME.sh" <<EOF
 #!/bin/bash

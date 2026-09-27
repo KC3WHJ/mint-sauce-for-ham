@@ -15,6 +15,12 @@ IC705_SERIAL_ID="usb-Icom_Inc._IC-705_IC-705_XXXXXXXX-if00"  # ls /dev/serial/by
 DOWNLOADS="$HOME/Downloads"
 WINEPREFIX_HAM="$HOME/.wine32"
 
+# ---- Convenience options (all optional, off by default) ----
+# "yes": the JS8Call Desktop icon also opens CommStat once JS8Call is up (CommStat connects to JS8Call
+# at its own start-up, so it has to come second). "no" (or blank): JS8Call opens alone and you start
+# CommStat yourself. Applied when Setup_Ham_Radio_Stack.sh (re)generates Start_JS8Call.sh.
+JS8CALL_OPENS_COMMSTAT="no"
+
 # ---- RTL-SDR / ADS-B station location (optional) ----
 # Leave both blank to skip setting a fixed location - readsb will just use
 # GPS (if a USB GPS is plugged in and gpsd auto-detects it) or no location.

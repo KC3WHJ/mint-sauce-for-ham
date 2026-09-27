@@ -78,6 +78,11 @@ substitute for amrron.com's current SOI (Signal Operating Instructions).**
   center via its own "Center" field; this isn't something the setup script
   hardcodes, since it's an operating-time choice per net, not an install
   default.
+- **Optional: CommStat opens with the radio JS8Call.** Set `JS8CALL_OPENS_COMMSTAT="yes"` in `config.sh`
+  (default: no) and `Start_JS8Call.sh` (the JS8Call Desktop icon) also starts your real CommStat, via `bin/open-commstat-with-js8call.sh`, once JS8Call is listening on its
+  API port (CommStat connects once at start-up and gives up after 12 failed retries, so JS8Call has to
+  be up first). It does nothing if CommStat is already open or isn't installed, and never touches the
+  separate receive-only CommStat copy. Log: `~/.cache/open-commstat.log`.
 - **JS8Call AmRRON frequencies** - per AmRRON's "JS8Call Settings for AmRRON Ops" page
   (updated 2022-06-01), **14.110, 7.110 and 3.588 MHz** are added to JS8Call's frequency
   dropdown (the same three the Fldigi nets use). The setup script does it by editing the
