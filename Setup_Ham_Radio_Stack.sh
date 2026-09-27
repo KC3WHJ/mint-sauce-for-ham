@@ -946,6 +946,11 @@ echo "apps below - if none is chosen yet, this falls back to the IC-705"
 echo "config from config.sh."
 
 mkdir -p "$HOME/Desktop"
+# Purpose-drawn icons for Select Radio and Channel Picker (icons/*.svg). Both shortcuts used to say
+# Icon=radio, which Mint's icon theme doesn't have, so they showed a plain fallback circle.
+HAM_ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+mkdir -p "$HAM_ICON_DIR"
+cp "$SCRIPT_DIR/icons/"*.svg "$HAM_ICON_DIR/" 2>/dev/null || true
 cat > "$HOME/Desktop/Select Radio.desktop" <<'EOF'
 [Desktop Entry]
 Name=Select Radio
@@ -956,6 +961,8 @@ Terminal=true
 Icon=radio
 Categories=HamRadio;
 EOF
+# (quoted heredoc above: point the icon at its absolute path now that $HOME is known)
+sed -i "s|^Icon=radio\$|Icon=$HAM_ICON_DIR/ham-select-radio.svg|" "$HOME/Desktop/Select Radio.desktop"
 chmod +x "$HOME/Desktop/Select Radio.desktop"
 gio set "$HOME/Desktop/Select Radio.desktop" "metadata::trusted" true 2>/dev/null || true
 echo "Select Radio.desktop written - without this shortcut, switching radios"
@@ -2185,6 +2192,9 @@ section "Weather: NWS alerts, Conky weather line, radar wall page, Supercell Wx"
 #   init   - looks up your nearest radar site from your position (ADSB_LAT / ADSB_LON in config.sh)
 # Supercell Wx is a separate, full NEXRAD radar viewer (level 2/3 data, warnings, storm tracks).
 mkdir -p "$HOME/.local/bin" "$HOME/.config/autostart" "$HOME/Desktop"
+HAM_ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+mkdir -p "$HAM_ICON_DIR"
+cp "$SCRIPT_DIR/icons/"*.svg "$HAM_ICON_DIR/" 2>/dev/null || true
 # Plain install (overwrites) - unlike conky.conf this has no local hand-tuning to protect; settings
 # live in ~/.config/wxstation/config, which is never touched once it exists.
 install -m 755 "$SCRIPT_DIR/bin/wxstation" "$HOME/.local/bin/wxstation"
@@ -2238,7 +2248,7 @@ Comment=Live local, regional and national radar loops plus active alerts (NWS)
 Exec=$HOME/.local/bin/wxstation radar --open
 Type=Application
 StartupNotify=true
-Icon=weather-storm
+Icon=$HAM_ICON_DIR/ham-weather-radar.svg
 Terminal=false
 Categories=Network;
 EOF
@@ -2281,7 +2291,7 @@ Comment=Full NEXRAD radar viewer with warnings - first run asks for a map style 
 Exec=$SCWX_DIR/bin/supercell-wx
 Type=Application
 StartupNotify=true
-Icon=weather-severe-alert
+Icon=$HAM_ICON_DIR/ham-supercell-wx.svg
 Terminal=false
 Categories=Network;
 EOF
@@ -2420,7 +2430,7 @@ Comment=Browse programmed memory channels by name/group and jump to one
 Exec=python3 "$SCRIPT_DIR/channel-tools/channel-picker.py"
 Type=Application
 StartupNotify=true
-Icon=radio
+Icon=$HOME/.local/share/icons/hicolor/scalable/apps/ham-channel-picker.svg
 Terminal=false
 Categories=HamRadio;
 EOF

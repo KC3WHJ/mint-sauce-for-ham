@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <title>Select Radio</title>
+  <!-- antenna -->
+  <line x1="98" y1="30" x2="108" y2="8" stroke="#8f96a3" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="108" cy="8" r="3.5" fill="#8f96a3"/>
+  <!-- body -->
+  <rect x="12" y="30" width="104" height="82" rx="12" fill="#2f3542" stroke="#1a1e26" stroke-width="3"/>
+  <rect x="16" y="34" width="96" height="6" rx="3" fill="#3d4453"/>
+  <!-- display -->
+  <rect x="22" y="46" width="60" height="24" rx="4" fill="#12291d" stroke="#0b1a12" stroke-width="2"/>
+  <text x="52" y="64" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-weight="bold" font-size="15" fill="#7ee6a1">7.078</text>
+  <!-- tuning knob -->
+  <circle cx="98" cy="58" r="15" fill="#c9ced8" stroke="#7d8492" stroke-width="3"/>
+  <circle cx="98" cy="58" r="9" fill="#e6e9ef" stroke="#a5abb8" stroke-width="1.5"/>
+  <line x1="98" y1="58" x2="105" y2="50" stroke="#2f3542" stroke-width="3" stroke-linecap="round"/>
+  <!-- speaker grille -->
+  <g stroke="#59616f" stroke-width="3" stroke-linecap="round">
+    <line x1="24" y1="82" x2="66" y2="82"/><line x1="24" y1="90" x2="66" y2="90"/>
+    <line x1="24" y1="98" x2="66" y2="98"/><line x1="24" y1="106" x2="66" y2="106"/>
+  </g>
+  <!-- switch-radio arrows -->
+  <g fill="none" stroke="#f0b24a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M76 88 H106 M99 81 L106 88 L99 95"/>
+    <path d="M106 102 H76 M83 95 L76 102 L83 109" transform="translate(0,0)"/>
+  </g>
+</svg>
