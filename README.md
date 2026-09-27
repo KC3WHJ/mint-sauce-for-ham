@@ -275,8 +275,18 @@ Added 2026-09-18, following AmRRON's own video *"FLDIGI Setup for AmRRON Ops
     stops it directly)
   - the shared `websdr_sink` is only removed when neither the JS8Call nor the
     Fldigi WebSDR setup is still running
-  - **Not yet tested with a real over-the-air/WebSDR message** (the form
-    round trip) - only the plumbing and settings above have been verified.
+  - **Only the stream you pick goes in, even if you have other audio playing.** Found live
+    2026-09-27: once one stream from an app (e.g. a WebSDR browser tab) is moved into
+    `websdr_sink`, PipeWire/PulseAudio's stream-restore remembers that **per application**, not
+    per tab - so the next unrelated audio from that same app (another Firefox tab, e.g. YouTube)
+    gets silently swept into `websdr_sink` too and goes silent, with no error shown.
+    `bin/watch-websdr-sink.sh` runs alongside an active session (started by Activate, stopped by
+    Deactivate) and immediately moves anything else that lands on `websdr_sink` back to your
+    default output, so only the WebSDR stream you chose stays routed to Fldigi. Log:
+    `~/Fldigi-WebSDR/routing-watcher.log`.
+  - **Tested with a real, live KiwiSDR stream** (confirmed the audio path browser -> Fldigi, and
+    the stray-stream fix above) - **still not tested with a real over-the-air/WebSDR AmRRON
+    message** (the form round trip).
 
 ## Receive-only JS8Call via a web SDR (no radio needed at all)
 

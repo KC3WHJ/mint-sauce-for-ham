@@ -950,7 +950,8 @@ chmod +x "$HOME/.local/bin/select-radio.sh" "$HOME/.local/bin/ham-radio-name.sh"
     "$HOME/.local/bin/ham-radio-freq.sh" "$HOME/.local/bin/ham-radio-mode.sh" \
     "$HOME/.local/bin/ham-gps-grid.sh" "$HOME/.local/bin/apply-amrron-fldigi.sh" \
     "$HOME/.local/bin/install-amrron-forms.sh" "$HOME/.local/bin/open-fldigi-companions.sh" \
-    "$HOME/.local/bin/open-commstat-with-js8call.sh" "$HOME/.local/bin/ham-gps-detect.sh"
+    "$HOME/.local/bin/open-commstat-with-js8call.sh" "$HOME/.local/bin/ham-gps-detect.sh" \
+    "$HOME/.local/bin/watch-websdr-sink.sh"
 if [ -d "$SCRIPT_DIR/radio_profiles" ]; then
     cp -n "$SCRIPT_DIR/radio_profiles/"*.conf "$HOME/radio_profiles/" 2>/dev/null || true
     cp -n "$SCRIPT_DIR/radio_profiles/audio/"*.sh "$HOME/radio_profiles/audio/" 2>/dev/null || true
@@ -1896,6 +1897,11 @@ want=sinks.get("'"$SINK_NAME"'")
 sys.exit(0 if any(i.get("sink")==want for i in json.load(sys.stdin)) else 1)'; then
     echo "A stream is already routed into $SINK_NAME (from an earlier Activate) -"
     echo "Fldigi will hear it too. Nothing more to do."
+    if ! pgrep -f "watch-websdr-sink.sh $SINK_NAME" > /dev/null && [ -x "$HOME/.local/bin/watch-websdr-sink.sh" ]; then
+        DEFAULT_SINK="$(pactl get-default-sink)"
+        setsid -f "$HOME/.local/bin/watch-websdr-sink.sh" "$SINK_NAME" "" "$DEFAULT_SINK" \
+            "$WHOME/routing-watcher.log" > /dev/null 2>&1 < /dev/null
+    fi
     echo
     echo "When done, use 'Deactivate Fldigi WebSDR' to clean up."
     exit 0
@@ -1945,6 +1951,20 @@ fi
 pactl move-sink-input "$CHOICE" "$SINK_NAME"
 echo "Routed stream $CHOICE into $SINK_NAME - Fldigi (WebSDR profile) should"
 echo "start showing the signal on its waterfall."
+
+# PipeWire/PulseAudio quirk (found live 2026-09-27): once one stream from an app is moved into
+# websdr_sink, it remembers that choice PER APPLICATION, not per tab/stream - so a second,
+# unrelated stream from the same app (another browser tab playing something else) gets silently
+# swept into websdr_sink too and goes silent. This watcher catches and undoes that: anything
+# OTHER than the stream you just chose that lands on websdr_sink gets moved back to your
+# then-default output. It runs for the rest of this WebSDR session; Deactivate stops it.
+if [ -x "$HOME/.local/bin/watch-websdr-sink.sh" ]; then
+    DEFAULT_SINK="$(pactl get-default-sink)"
+    setsid -f "$HOME/.local/bin/watch-websdr-sink.sh" "$SINK_NAME" "$CHOICE" "$DEFAULT_SINK" \
+        "$WHOME/routing-watcher.log" > /dev/null 2>&1 < /dev/null
+    echo "Watching for any OTHER app audio that lands on $SINK_NAME by mistake (log: $WHOME/routing-watcher.log)."
+fi
+
 echo
 echo "When done, use 'Deactivate Fldigi WebSDR' to clean up."
 FLDIGI_WEBSDR_START_EOF
@@ -1999,6 +2019,15 @@ close_matching "Flmsg" "^flmsg --flmsg-dir $WHOME"
 echo
 echo "=== Stopping Fldigi (WebSDR copy) ==="
 close_matching "Fldigi" "^fldigi --home-dir $WHOME"
+
+echo
+echo "=== Stopping the audio-routing watcher ==="
+if pgrep -f "watch-websdr-sink.sh websdr_sink" > /dev/null; then
+    pkill -f "watch-websdr-sink.sh websdr_sink"
+    echo "Stopped."
+else
+    echo "Not running."
+fi
 
 echo
 echo "=== Removing virtual audio sinks ==="
