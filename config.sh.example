@@ -20,6 +20,10 @@ WINEPREFIX_HAM="$HOME/.wine32"
 # at its own start-up, so it has to come second). "no" (or blank): JS8Call opens alone and you start
 # CommStat yourself. Applied when Setup_Ham_Radio_Stack.sh (re)generates Start_JS8Call.sh.
 JS8CALL_OPENS_COMMSTAT="no"
+# "yes": for a machine used ONLY for AmRRON - the Fldigi and Flamp launchers re-apply AmRRON's
+# settings (AFC off, Contestia 4/250 at 900 Hz, Flamp options...) on EVERY start. "no" (default):
+# applied once per profile, then left alone so your own changes stick.
+AMRRON_ALWAYS_APPLY="no"
 
 # ---- RTL-SDR / ADS-B station location (optional) ----
 # Leave both blank to skip setting a fixed location - readsb will just use

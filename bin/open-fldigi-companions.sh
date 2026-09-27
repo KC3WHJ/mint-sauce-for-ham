@@ -96,7 +96,8 @@ start_app() {
 # to AmRRON's reference screenshot). Written here rather than clicked in because Flamp's tick marks
 # don't draw on this desktop. Everything happens while Flamp is NOT running (it rewrites its
 # settings file when it exits), the callsign is only filled in when empty, and the AmRRON block is
-# applied ONCE (marker file) so it never overrides what you change later.
+# applied ONCE (marker file) so it never overrides what you change later - unless
+# ~/.config/amrron-always-apply exists (config.sh: AMRRON_ALWAYS_APPLY="yes"), then on every launch.
 #   ON : auto sync flamp->fldigi mode selector, change fldigi mode just prior to transmit,
 #        warn when removing files from queue, clear missing blocks on non-canceled transmits,
 #        inhibit header modem on block fills, auto save subfolders in local time,
@@ -128,7 +129,7 @@ seed_flamp_prefs() {
             echo "mycall:$FLAMP_CALL" >> "$prefs"
         fi
     fi
-    if [ ! -f "$marker" ]; then
+    if [ ! -f "$marker" ] || [ -f "$HOME/.config/amrron-always-apply" ]; then
         for kv in $AMRRON_FLAMP_PREFS; do
             k="${kv%%=*}"; v="${kv##*=}"
             if grep -q "^$k:" "$prefs"; then

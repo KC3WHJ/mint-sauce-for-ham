@@ -809,6 +809,20 @@ fi
 echo "CommStat itself needs a one-time first-run setup (callsign, groups,"
 echo "optional QRZ key) through its own UI - launch via the Desktop shortcut."
 
+section "AmRRON settings: apply once, or on every launch"
+# Default: AmRRON's Fldigi/Flamp settings are applied once per profile and then left alone, so
+# anything you change sticks. AMRRON_ALWAYS_APPLY="yes" (config.sh) is for a machine used ONLY for
+# AmRRON: the launchers then re-apply them on every start, so they can't drift (Fldigi, for example,
+# saved AFC back on). It works through a flag file the launchers look for.
+mkdir -p "$HOME/.config"
+if [ "${AMRRON_ALWAYS_APPLY:-no}" = "yes" ]; then
+    touch "$HOME/.config/amrron-always-apply"
+    echo "AmRRON settings will be re-applied on every Fldigi/Flamp launch (AMRRON_ALWAYS_APPLY=yes)."
+else
+    rm -f "$HOME/.config/amrron-always-apply"
+    echo "AmRRON settings are applied once per profile (set AMRRON_ALWAYS_APPLY=\"yes\" in config.sh to re-apply on every launch)."
+fi
+
 section "AmRRON frequencies in JS8Call's dropdown (radio + receive-only WebSDR profiles)"
 # AmRRON's JS8Call guidance (amrron.com "JS8Call Settings for AmRRON Ops", updated 2022-06-01)
 # says to add three digital-mode frequencies to JS8Call's frequency page: 14.110 (20m),
@@ -1178,7 +1192,10 @@ if [ -f "$FLDIGI_XML" ] && ! pgrep -fx fldigi > /dev/null; then
     # AmRRON's recommended settings (NBEMS/flmsg, Rx ID, AFC off, Contestia
     # 4/250 @ 900 Hz, 80/40/20m net frequencies), applied once - the marker
     # file stops later launches from undoing anything you change by hand.
-    if [ ! -f "$HOME/.fldigi/.amrron-profile-applied" ] \
+    # Once by default; on EVERY launch when ~/.config/amrron-always-apply exists (config.sh:
+    # AMRRON_ALWAYS_APPLY="yes") - Fldigi rewrites its settings on exit, so anything changed by
+    # hand (e.g. AFC switched back on) would otherwise stick.
+    if { [ ! -f "$HOME/.fldigi/.amrron-profile-applied" ] || [ -f "$HOME/.config/amrron-always-apply" ]; } \
        && [ -x "$HOME/.local/bin/apply-amrron-fldigi.sh" ]; then
         "$HOME/.local/bin/apply-amrron-fldigi.sh" "$HOME/.fldigi" \
             && touch "$HOME/.fldigi/.amrron-profile-applied"
@@ -1791,6 +1808,12 @@ if [ ! -f "$WHOME/.fldigi/fldigi_def.xml" ]; then
     if [ -x "$HOME/.local/bin/apply-amrron-fldigi.sh" ]; then
         "$HOME/.local/bin/apply-amrron-fldigi.sh" "$WHOME/.fldigi"
     fi
+fi
+# "Always" mode (config.sh: AMRRON_ALWAYS_APPLY="yes" -> ~/.config/amrron-always-apply): re-apply
+# AmRRON's Fldigi settings on every launch, not just when the profile is first seeded. Fldigi is not
+# running for this profile here (checked at the top), so its settings file is safe to edit.
+if [ -f "$HOME/.config/amrron-always-apply" ] && [ -x "$HOME/.local/bin/apply-amrron-fldigi.sh" ]; then
+    "$HOME/.local/bin/apply-amrron-fldigi.sh" "$WHOME/.fldigi"
 fi
 mkdir -p "$WHOME/.nbems"
 # AmRRON's custom Flmsg forms into the WebSDR Flmsg's own CUSTOM folder

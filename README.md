@@ -162,6 +162,13 @@ substitute for amrron.com's current SOI (Signal Operating Instructions).**
 Added 2026-09-18, following AmRRON's own video *"FLDIGI Setup for AmRRON Ops
 | Vid 2 | Receiving HF Digital Series"* and its Flmsg companion.
 
+- **AFC off, and staying off.** AmRRON's Fldigi guidance is AFC off. Turning the global switch off is not
+  enough: Fldigi also keeps AFC state **per mode** (`AFC_BY_MODE` in `fldigi_def.xml`, values in
+  `mode_state.prefs`, every mode defaulting to ON) and restores it when a mode loads, so AFC silently came
+  back on after every run. `bin/apply-amrron-fldigi.sh` now sets `AFC_BY_MODE=0` and zeroes the saved
+  per-mode values as well. Optional `AMRRON_ALWAYS_APPLY="yes"` in `config.sh` (default no) re-applies
+  AmRRON's Fldigi and Flamp settings on **every** launch of either profile, for a machine used only for
+  AmRRON, instead of once per profile; it works through the flag file `~/.config/amrron-always-apply`.
 - **Fldigi, Flmsg and Flamp open together, in that order** - for both the radio Fldigi (the Fldigi
   Desktop icon) and the receive-only one (Activate Fldigi WebSDR). Flmsg parses an incoming
   message into the right AmRRON form; Flamp reassembles multi-block transfers and requests any

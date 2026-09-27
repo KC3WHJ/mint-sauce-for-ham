@@ -20,7 +20,8 @@
 #   Rx ID on (lets a sending station switch your mode, e.g. to MFSK32 for
 #     traffic, then back to Contestia) -> RECEIVERSID=1
 #   AFC off; start on Contestia 4/250 with the waterfall carrier at 900 Hz
-#     -> fldigi.prefs afc_enabled/afconoff, mode_name, wf_carrier
+#     -> fldigi.prefs afc_enabled/afconoff, mode_name, wf_carrier, plus AFC_BY_MODE=0 and
+#        the per-mode AFC values in mode_state.prefs (see below - the global switch alone doesn't hold)
 #   Frequency list: AmRRON net frequencies - 80m 3.588, 40m 7.110, 20m
 #     14.110 MHz, each Contestia 4/250 at 900 Hz -> frequencies2.txt
 #
@@ -67,6 +68,13 @@ set_xml RECEIVERSID 1
 
 set_pref afc_enabled 0
 set_pref afconoff 0
+# Fldigi keeps AFC state PER MODE (fldigi_def.xml AFC_BY_MODE=1, default) in mode_state.prefs, where
+# every mode/band entry defaults to ON, and restores it when a mode loads - which silently overrides
+# the global afconoff above (found 2026-09-27: AFC came back on after every run of Fldigi). So also
+# stop it restoring per-mode AFC, and zero any per-mode values already saved.
+set_xml AFC_BY_MODE 0
+MODESTATE="$CFG/mode_state.prefs"
+[ -f "$MODESTATE" ] && sed -i -E 's/^(.*\.afc_[A-Za-z0-9]+):1$/\1:0/' "$MODESTATE"
 set_pref mode_name "Cont-4/250"
 set_pref wf_carrier 900
 
