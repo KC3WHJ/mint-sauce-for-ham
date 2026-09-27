@@ -139,6 +139,24 @@ GPSD_OPTIONS="-n -b"
 USBAUTO="true"
 EOF
 
+section "GPS: hand the IC-705's built-in GPS to gpsd when the radio is plugged in"
+# gpsd already attaches USB GPS pucks and laptop GPS modules it knows (60-gpsd.rules, via USBAUTO). The
+# IC-705 has its own GPS and sends it as NMEA on its SECOND USB serial port (interface 02) - but that
+# port isn't in gpsd's list, so without this the radio's GPS just sits unused. udev/61-ham-gps.rules adds
+# it the same way gpsd adds a puck. Harmless without an IC-705 (the rule simply never matches). Both
+# sources can be present at once; gpsd uses the best fix. (Position only: GPS TIME for chrony still needs
+# a device gpsd opens at its own start-up - see the chrony section below.) In the radio's USB(B) settings
+# keep "USB SEND" and the CW/RTTY "USB Keying" options OFF, since opening that port raises DTR/RTS.
+if [ -f "$SCRIPT_DIR/udev/61-ham-gps.rules" ]; then
+    sudo install -m 644 "$SCRIPT_DIR/udev/61-ham-gps.rules" /etc/udev/rules.d/61-ham-gps.rules
+    sudo udevadm control --reload-rules
+    # Apply it to an IC-705 that is already plugged in (targeted; nothing else is re-triggered).
+    for p in /dev/serial/by-id/usb-Icom*IC-705*-if02; do
+        [ -e "$p" ] && sudo udevadm trigger --action=add "$(readlink -f "$p")"
+    done
+    echo "IC-705 GPS hotplug rule installed. Check what gpsd sees any time: ham-gps-detect.sh"
+fi
+
 section "Wiring readsb to pull live position from gpsd when a GPS is present"
 if ! grep -q 'gpsd_in' /etc/default/readsb 2>/dev/null; then
     sudo sed -i 's|^NET_OPTIONS="\(.*\)"|NET_OPTIONS="\1 --net-connector=127.0.0.1,2947,gpsd_in"|' /etc/default/readsb
@@ -932,7 +950,7 @@ chmod +x "$HOME/.local/bin/select-radio.sh" "$HOME/.local/bin/ham-radio-name.sh"
     "$HOME/.local/bin/ham-radio-freq.sh" "$HOME/.local/bin/ham-radio-mode.sh" \
     "$HOME/.local/bin/ham-gps-grid.sh" "$HOME/.local/bin/apply-amrron-fldigi.sh" \
     "$HOME/.local/bin/install-amrron-forms.sh" "$HOME/.local/bin/open-fldigi-companions.sh" \
-    "$HOME/.local/bin/open-commstat-with-js8call.sh"
+    "$HOME/.local/bin/open-commstat-with-js8call.sh" "$HOME/.local/bin/ham-gps-detect.sh"
 if [ -d "$SCRIPT_DIR/radio_profiles" ]; then
     cp -n "$SCRIPT_DIR/radio_profiles/"*.conf "$HOME/radio_profiles/" 2>/dev/null || true
     cp -n "$SCRIPT_DIR/radio_profiles/audio/"*.sh "$HOME/radio_profiles/audio/" 2>/dev/null || true

@@ -162,6 +162,18 @@ substitute for amrron.com's current SOI (Signal Operating Instructions).**
 Added 2026-09-18, following AmRRON's own video *"FLDIGI Setup for AmRRON Ops
 | Vid 2 | Receiving HF Digital Series"* and its Flmsg companion.
 
+- **GPS: uses whatever you have, doesn't assume a puck.** gpsd attaches USB GPS pucks and laptop GPS modules
+  it knows (u-blox, Prolific, ... - e.g. a Panasonic FZ-M1's built-in u-blox) by itself, and
+  `udev/61-ham-gps.rules` (installed by the setup script) adds the **IC-705's built-in GPS**, which it sends
+  as NMEA on its second USB serial port. Position then flows to everything that reads gpsd (the Conky grid
+  row, readsb's aircraft-map position). `bin/ham-gps-detect.sh` shows what gpsd is using (device, fix,
+  satellites) and classifies every USB serial port; it never opens a port on its own, because opening a
+  serial port raises DTR/RTS and on a radio or PTT interface that can key the transmitter. For an unknown
+  GPS: `ham-gps-detect.sh --probe /dev/ttyACMx` (read-only listen) then `--add /dev/ttyACMx`. The Conky row
+  (`bin/ham-gps-grid.sh`) shows the grid and its source - `FN20mb (IC-705)`, `(u-blox)` - or `(fixed)`
+  when there is no live fix (your fixed station location from `config.sh`). On the IC-705 keep "USB SEND"
+  and the CW/RTTY "USB Keying" options OFF for the USB(B) port. Limitation: GPS *time* (chrony) still needs
+  a device gpsd opens at its own start-up (see the chrony section); a hot-plugged GPS gives position only.
 - **AFC off, and staying off.** AmRRON's Fldigi guidance is AFC off. Turning the global switch off is not
   enough: Fldigi also keeps AFC state **per mode** (`AFC_BY_MODE` in `fldigi_def.xml`, values in
   `mode_state.prefs`, every mode defaulting to ON) and restores it when a mode loads, so AFC silently came

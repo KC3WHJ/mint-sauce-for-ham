@@ -1,0 +1,15 @@
+# Hand a radio's built-in GPS to gpsd the moment it is plugged in - the same hotplug mechanism gpsd's own
+# 60-gpsd.rules uses for USB GPS pucks (gpsdctl@.service runs "gpsdctl add" as root when the device
+# appears, "gpsdctl remove" when it goes; needs USBAUTO="true" in /etc/default/gpsd).
+#
+# ICOM IC-705 (USB 0c26:0036): its SECOND USB serial port (interface 02, "USB (B)") carries the radio's GPS
+# as plain NMEA once the radio has a fix; interface 00 is the CI-V control port and must NOT be touched.
+# In the radio's USB(B) settings keep "USB SEND" and the CW/RTTY "USB Keying" options OFF: opening the
+# port raises DTR/RTS, and those options would treat that as a transmit request.
+#
+# To add another radio with a built-in GPS, copy the line and change the three ENV values (see
+# `udevadm info /dev/ttyACMx`). ENV{ID_...} is used rather than ATTRS{...} on purpose: the port number lives on
+# the USB *interface* and the vendor/product IDs on the *device* above it, and udev only lets several ATTRS
+# keys match if they are all on the same parent - so an ATTRS version of this rule can never match.
+# (61 = after 60-serial.rules, which sets the ID_ properties.)
+SUBSYSTEM=="tty", ENV{ID_VENDOR_ID}=="0c26", ENV{ID_MODEL_ID}=="0036", ENV{ID_USB_INTERFACE_NUM}=="02", SYMLINK+="gps-ic705", TAG+="systemd", ENV{SYSTEMD_WANTS}="gpsdctl@%k.service"
