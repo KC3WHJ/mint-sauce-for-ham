@@ -24,6 +24,10 @@ JS8CALL_OPENS_COMMSTAT="no"
 # settings (AFC off, Contestia 4/250 at 900 Hz, Flamp options...) on EVERY start. "no" (default):
 # applied once per profile, then left alone so your own changes stick.
 AMRRON_ALWAYS_APPLY="no"
+# "yes": add an AMRRON section to the Conky status panel - the current AmRRON AmCON level (read from
+# amrron.com's AmCON page, cached, one small request per 15 minutes) and Running/Off status for Fldigi,
+# Flmsg and Flamp. "no" (default): no extra rows and no web request.
+AMRRON_CONKY="no"
 
 # ---- RTL-SDR / ADS-B station location (optional) ----
 # Leave both blank to skip setting a fixed location - readsb will just use

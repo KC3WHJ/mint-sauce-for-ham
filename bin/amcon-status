@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""AmRRON AmCON level for Conky (optional; enabled with AMRRON_CONKY="yes" in config.sh).
+
+Prints Conky markup for the current AmRRON Communications Condition (AmCON) level, read from
+https://amrron.com/net-resourcestools/amcon-amrron-communications-condition-level/ - the current-level
+graphic that follows the "Condition Level is:" heading, and the date of the newest update below it.
+
+Never blocks Conky: it prints the cached text at once and, when the cache is older than 15 minutes,
+starts a refresh in the background. One small request per 15 minutes, User-Agent identifies it.
+  amcon-status            print the Conky text (what conky.conf calls)
+  amcon-status --refresh  fetch now and update the cache (used by the background refresh)
+"""
+import json, os, re, subprocess, sys, time, urllib.request
+
+URL = "https://amrron.com/net-resourcestools/amcon-amrron-communications-condition-level/"
+CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "amcon")
+STATE = os.path.join(CACHE, "status.json")
+MAX_AGE = 15 * 60
+NAMES = {1: "highest", 2: "Event imminent", 3: "Incident probable", 4: "Incident possible", 5: "lowest"}
+COLORS = {1: "e06c75", 2: "e06c75", 3: "d19a66", 4: "e5c07b", 5: "98c379"}   # same palette as the panel
+
+
+def refresh():
+    os.makedirs(CACHE, exist_ok=True)
+    req = urllib.request.Request(URL, headers={"User-Agent": "conky-amcon-status (mint-sauce-for-ham)"})
+    try:
+        html = urllib.request.urlopen(req, timeout=25).read().decode("utf-8", "replace")
+        m = re.search(r"Condition Level is:.*?AmCON-([1-5])\.png", html, re.S)
+        if not m:
+            raise ValueError("current-level graphic not found (page layout changed?)")
+        text = re.sub(r"<[^>]+>", " ", html)
+        d = re.search(r"Condition Level is:.*?Update\s+(\d{8})-(\d{4})Z", text, re.S)
+        state = {"level": int(m.group(1)), "updated": d.group(1) if d else "", "checked": time.time(), "ok": True}
+    except Exception as e:                      # keep the last good level, just mark it stale
+        state = {}
+        if os.path.exists(STATE):
+            try:
+                state = json.load(open(STATE))
+            except ValueError:
+                state = {}
+        state.update(ok=False, error=str(e)[:120], checked=state.get("checked", 0), tried=time.time())
+    tmp = STATE + ".tmp"
+    json.dump(state, open(tmp, "w"))
+    os.replace(tmp, STATE)
+
+
+def render():
+    st = {}
+    try:
+        st = json.load(open(STATE))
+    except (OSError, ValueError):
+        pass
+    age = time.time() - max(st.get("checked", 0), 0)
+    if age > MAX_AGE and time.time() - st.get("tried", 0) > 120:      # stale: refresh without blocking
+        subprocess.Popen([sys.argv[0], "--refresh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         stdin=subprocess.DEVNULL, start_new_session=True)
+    lvl = st.get("level")
+    if not lvl:
+        return "${color b8bcc8}AmCON${goto 110}${color 5c6370}checking...\n"
+    stale = age > 3 * MAX_AGE
+    since = st.get("updated", "")
+    since = f"since {since[4:6]}-{since[6:8]}" if len(since) == 8 else ""
+    line1 = f"${{color b8bcc8}}AmCON${{goto 110}}${{color {COLORS[lvl]}}}{lvl} - {NAMES[lvl]}"
+    line2 = f"${{color b8bcc8}}${{goto 110}}${{color 8b8f9c}}{since}{' (offline, last known)' if stale else ''}"
+    return line1 + "\n" + (line2 + "\n" if (since or stale) else "")
+
+
+if __name__ == "__main__":
+    if "--refresh" in sys.argv:
+        refresh()
+    else:
+        sys.stdout.write(render())

@@ -174,6 +174,15 @@ Added 2026-09-18, following AmRRON's own video *"FLDIGI Setup for AmRRON Ops
   when there is no live fix (your fixed station location from `config.sh`). On the IC-705 keep "USB SEND"
   and the CW/RTTY "USB Keying" options OFF for the USB(B) port. Limitation: GPS *time* (chrony) still needs
   a device gpsd opens at its own start-up (see the chrony section); a hot-plugged GPS gives position only.
+- **Optional: AmRRON rows in the Conky panel.** `AMRRON_CONKY="yes"` in `config.sh` (default no) adds an
+  AMRRON section: the current AmRRON Communications Condition (**AmCON**) level - colour-coded, with its name
+  and the date of the newest update - plus Running/Off status for Fldigi, Flmsg and Flamp. The level comes
+  from amrron.com's AmCON page via `bin/amcon-status`, which reads the current-level graphic under the
+  "Condition Level is:" heading, caches it, and makes one small request per 15 minutes without ever blocking
+  Conky; if the site is unreachable it keeps the last level and marks it "(offline, last known)". Off by
+  default (not everyone uses AmRRON, and it makes a web request). The block is inserted once into your live
+  `~/.config/conky/conky.conf` (with a backup); switching the setting back to "no" doesn't remove it. Scale:
+  1 = highest ... 5 = lowest; the page itself names only levels 2 to 4.
 - **AFC off, and staying off.** AmRRON's Fldigi guidance is AFC off. Turning the global switch off is not
   enough: Fldigi also keeps AFC state **per mode** (`AFC_BY_MODE` in `fldigi_def.xml`, values in
   `mode_state.prefs`, every mode defaulting to ON) and restores it when a mode loads, so AFC silently came

@@ -2315,6 +2315,47 @@ Categories=Network;
 EOF
 fi
 
+section "Optional: AmRRON rows in the Conky panel (AMRRON_CONKY)"
+# AMRRON_CONKY="yes" in config.sh adds an AMRRON section to the Conky status panel: the current AmRRON
+# Communications Condition (AmCON) level, read from amrron.com's AmCON page by bin/amcon-status (cached,
+# one small request per 15 minutes, never blocks Conky), plus Running/Off status for Fldigi, Flmsg and
+# Flamp. Off by default: not everyone uses AmRRON, and it makes a web request. Inserted into the LIVE
+# conky.conf (not the tracked template, which is copied with cp -n and so never updates an existing
+# file), once, with a backup; turning the setting back to "no" later does not remove it - delete the
+# AMRRON block from ~/.config/conky/conky.conf yourself.
+if [ "${AMRRON_CONKY:-no}" = "yes" ]; then
+    install -m 755 "$SCRIPT_DIR/bin/amcon-status" "$HOME/.local/bin/amcon-status"
+    CONKY_CONF="$HOME/.config/conky/conky.conf"
+    if [ ! -f "$CONKY_CONF" ]; then
+        echo "NOTE: no $CONKY_CONF yet - re-run this script after the Conky section has created it."
+    elif grep -q 'amcon-status' "$CONKY_CONF"; then
+        echo "AmRRON rows already in the Conky panel."
+    elif grep -q '^\${font DejaVu Sans Mono:size=10}\${color 8b8f9c}STATION ' "$CONKY_CONF"; then
+        cp -p "$CONKY_CONF" "$CONKY_CONF.pre-amrron-$(date +%Y%m%d-%H%M)"
+        AMRRON_SNIPPET="$(mktemp)"
+        cat > "$AMRRON_SNIPPET" <<'AMRRON_CONKY_EOF'
+${font DejaVu Sans Mono:size=10}${color 8b8f9c}AMRRON ${color 3a3d4a}${hr 1}${font}
+${font DejaVu Sans Mono:size=11}${execpi 60 ~/.local/bin/amcon-status}
+${color b8bcc8}Fldigi${goto 110}${if_running fldigi}${color 98c379}● Running${else}${color 5c6370}○ Off${endif}
+${color b8bcc8}Flmsg${goto 110}${if_running flmsg}${color 98c379}● Running${else}${color 5c6370}○ Off${endif}
+${color b8bcc8}Flamp${goto 110}${if_running flamp}${color 98c379}● Running${else}${color 5c6370}○ Off${endif}${font}
+
+AMRRON_CONKY_EOF
+        # Insert the block just above the STATION header (awk, not sed: sed's "r" appends AFTER the match).
+        AMRRON_TMP="$(mktemp)"
+        awk -v snip="$AMRRON_SNIPPET" 'index($0, "${color 8b8f9c}STATION ") && !done { while ((getline l < snip) > 0) print l; done = 1 } { print }' \
+            "$CONKY_CONF" > "$AMRRON_TMP" && cat "$AMRRON_TMP" > "$CONKY_CONF"
+        rm -f "$AMRRON_TMP"
+        rm -f "$AMRRON_SNIPPET"
+        echo "Added the AmRRON rows to $CONKY_CONF (restart Conky to see them)."
+    else
+        echo "NOTE: couldn't find the STATION header in $CONKY_CONF - add the AMRRON block by hand:"
+        echo '      ${execpi 60 ~/.local/bin/amcon-status}'
+    fi
+else
+    echo "AmRRON Conky rows are off (set AMRRON_CONKY=\"yes\" in config.sh to add them)."
+fi
+
 section "Desktop shortcuts"
 mkdir -p "$HOME/Desktop"
 
