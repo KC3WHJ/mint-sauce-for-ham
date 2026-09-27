@@ -1471,6 +1471,18 @@ fi
 pactl move-sink-input "$CHOICE" "$SINK_NAME"
 echo "Routed stream $CHOICE into $SINK_NAME - JS8Call (WebSDR profile) should"
 echo "start decoding shortly."
+
+# Same PipeWire/PulseAudio quirk as the Fldigi WebSDR setup (found live 2026-09-27): once one
+# stream is moved into websdr_sink, that choice is remembered PER APPLICATION, not per tab - so a
+# second, unrelated stream from the same app can get silently swept in too and go silent. This
+# sink is shared with Fldigi WebSDR, so only start the watcher if one isn't already running.
+if [ -x "$HOME/.local/bin/watch-websdr-sink.sh" ] && ! pgrep -f "watch-websdr-sink.sh $SINK_NAME" > /dev/null; then
+    DEFAULT_SINK="$(pactl get-default-sink)"
+    setsid -f "$HOME/.local/bin/watch-websdr-sink.sh" "$SINK_NAME" "$CHOICE" "$DEFAULT_SINK" \
+        "$HOME/.cache/websdr-routing-watcher.log" > /dev/null 2>&1 < /dev/null
+    echo "Watching for any OTHER app audio that lands on $SINK_NAME by mistake (log: ~/.cache/websdr-routing-watcher.log)."
+fi
+
 echo
 echo "When done, use 'Stop JS8Call WebSDR' to clean up."
 WEBSDR_START_EOF
@@ -1498,6 +1510,17 @@ echo
 echo "=== Stopping WebSDR-profile JS8Call ==="
 if pgrep -f "js8call -r WebSDR" > /dev/null; then
     pkill -f "js8call -r WebSDR"
+    echo "Stopped."
+else
+    echo "Not running."
+fi
+
+echo
+echo "=== Stopping the audio-routing watcher ==="
+if pgrep -f "^fldigi --home-dir $HOME/Fldigi-WebSDR" > /dev/null; then
+    echo "Kept - the Fldigi WebSDR setup is still using the shared $SINK_NAME."
+elif pgrep -f "watch-websdr-sink.sh $SINK_NAME" > /dev/null; then
+    pkill -f "watch-websdr-sink.sh $SINK_NAME"
     echo "Stopped."
 else
     echo "Not running."
@@ -2022,7 +2045,9 @@ close_matching "Fldigi" "^fldigi --home-dir $WHOME"
 
 echo
 echo "=== Stopping the audio-routing watcher ==="
-if pgrep -f "watch-websdr-sink.sh websdr_sink" > /dev/null; then
+if pgrep -f "js8call -r WebSDR" > /dev/null; then
+    echo "Kept - the JS8Call WebSDR setup is still using the shared $SINK_NAME."
+elif pgrep -f "watch-websdr-sink.sh websdr_sink" > /dev/null; then
     pkill -f "watch-websdr-sink.sh websdr_sink"
     echo "Stopped."
 else
